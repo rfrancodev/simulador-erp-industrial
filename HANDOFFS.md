@@ -1,0 +1,357 @@
+# HANDOFFS — Industrial ERP Simulator
+
+This file documents the completion of each task, serving as the source of truth for model transitions.
+
+---
+
+## TASK-003 — Correção da Auditoria (auditoria.md)
+
+**Status:** DONE
+
+**Data:** 2026-08-11
+
+**IMPLEMENTADO:**
+- **H-01** — `BaseRepository.count()` agora usa `func.count()` (O(1) memória, executado no DB)
+- **H-02** — `CostRecord` ganhou CHECK constraints garantindo que `planned_total_cost` e `actual_total_cost` sempre sejam iguais à soma dos componentes (materiais, trabalho, máquina, energia)
+- **H-03** — `app/services/production_service.py` com `ProductionService.create_production_order()` que valida `recipe.material_id == order.material_id` e material ativo antes de persistir
+- **M-01** — CHECK constraints derivadas dos enums Pydantic (helper `_enum_check`) para `material_type`, `status` (orders/batches), `inspection_status`, `severity`, `disposition` — fonte única de verdade, sem drift
+- **M-02** — `QualityInspectionRepository.update_result()` com whitelist `_MUTABLE_INSPECTION_FIELDS` + validação de status via `InspectionStatus` enum
+- **M-03** — `model_validator` em `ProductionOrderBase` garante `planned_end > planned_start`
+- **M-04** — `MaterialRepository.delete()` verifica 4 dependências (Recipe, RecipeComponent, ProductionOrder, MaterialConsumption) e lança `EntityHasDependenciesError`
+- **M-05** — Contrato transacional documentado no `BaseRepository` (repos usam flush, services fazem commit/rollback); `ProductionService` implementa o padrão
+- **M-06** — Todas as datas substituídas por `datetime.now(UTC)` com colunas `DateTime(timezone=True)`
+- **M-07** — 33 testes novos (Quality, Batch, Recipe, CostingRepository, ProductionService)
+- **M-08** — Teste `test_count_active` adicionado
+- **M-09** — `MaterialStatus` enum removido (código morto)
+- **M-10** — Imports não usados removidos
+- **L-01** — `.env.example` usa placeholders `<user>:<password>`
+- **L-02** — `app/core/logging.py` com `setup_logging()` chamado no `main.py`
+- **L-03** — `app/core/exceptions.py`: `DomainError`, `EntityNotFoundError`, `DuplicateEntityError`, `RecipeMaterialMismatchError`, `EntityHasDependenciesError` + tradução de `IntegrityError`
+- **L-04** — `pH` Numeric(3,2), `alcohol_percent` Numeric(3,1)
+- `.gitignore` restaurado (Python + Node/Vite) — havia perdido entradas Vite em TASK-001
+
+**ARQUIVOS CRIADOS:**
+- `app/core/__init__.py`, `app/core/exceptions.py`, `app/core/logging.py`
+- `app/services/production_service.py`
+- `tests/unit/test_quality.py`, `tests/unit/test_batch.py`, `tests/unit/test_recipe.py`, `tests/unit/test_costing_repository.py`, `tests/unit/test_production_service.py`
+
+**ARQUIVOS ALTERADOS:**
+- `app/domain/entities.py` (CHECK constraints, tz-aware dates, precision)
+- `app/domain/production/recipe.py` (model_validator dates)
+- `app/domain/production/material.py` (removido MaterialStatus)
+- `app/repositories/base.py` (count, contrato transacional)
+- `app/repositories/production_repository.py` (delete com dependências, imports)
+- `app/repositories/quality_repository.py` (whitelist, status validation)
+- `app/repositories/costing_repository.py` (import não usado)
+- `app/services/__init__.py`, `app/main.py`, `.env.example`, `.gitignore`
+- `tests/conftest.py` (tz-aware, fixtures sample_resource/sample_batch)
+- `tests/unit/test_material.py`, `tests/unit/test_cost_record.py`
+
+**TESTES:**
+```
+============================== 56 passed in 0.77s ==============================
+```
+- `.venv/bin/python -m compileall app/` → OK
+- `.venv/bin/pytest tests/` → **56 passed** (era 23)
+- `npm run typecheck` → OK
+
+**AUTO REVIEW:**
+- Todos os itens HIGH, MEDIUM e LOW da auditoria tratados (16/17)
+- `L-05` (RecipeComponent.unit) mantido como decisão de domínio — componentes possuem UoM próprias; validar consistência quando o Recipe service for criado
+
+**SECURITY AUDIT:**
+- Sem secrets; `.env.example` com placeholders; ORM parametrizado; validação Pydantic + whitelist; erros traduzidos para domínio; logs sem dados sensíveis
+
+**PENDÊNCIAS:**
+- `L-05`: validação de unidade em Recipe service (futuro)
+- TASK-004: Database connection + Alembic migrations
+- TASK-005/006/007: API endpoints PP-PI, QM, CO
+- TASK-008: Simulation engine
+
+**PRÓXIMA TAREFA:**
+TASK-004 — Criar `app/database/connection.py` + setup Alembic para PostgreSQL
+
+---
+
+## TASK-001 — Preparar Estrutura Base
+
+**Status:** DONE
+
+**Data:** 2026-08-11
+
+**IMPLEMENTADO:**
+- Estrutura de diretórios conforme `plano/04-arquitetura-software.md`
+- `app/` com api, domain (pp/qm/co), services, repositories, simulation, analytics, templates, static
+- `database/migrations/`, `database/seeds/`
+- `scripts/` (generate_data, seed_database, reset_database)
+- `tests/unit/`, `tests/integration/`
+- `requirements.txt` (FastAPI, SQLAlchemy, Pydantic, Pandas, Plotly, Jinja2, pytest, httpx, alembic)
+- `app/main.py` com FastAPI base e endpoint `/health`
+- `.env.example` com variáveis de ambiente e defaults de simulação
+- `.gitignore` atualizado para Python
+
+**ARQUIVOS CRIADOS:**
+- `requirements.txt`
+- `app/__init__.py`, `app/main.py`
+- `app/api/__init__.py`
+- `app/domain/__init__.py`
+- `app/domain/production/__init__.py`
+- `app/domain/quality/__init__.py`
+- `app/domain/costing/__init__.py`
+- `app/services/__init__.py`
+- `app/repositories/__init__.py`
+- `app/simulation/__init__.py`
+- `app/analytics/__init__.py`
+- `.env.example`
+- `.gitignore` (atualizado)
+
+**TESTES:**
+- `python3 -m compileall app/` → OK (todos arquivos compilam)
+- `npm run typecheck` → OK (TypeScript legado sem erros)
+
+**AUTO REVIEW:**
+- Arquitetura respeita os documentos de plano/
+- Domínios PP-PI, QM, CO separados corretamente
+- Sem duplicação, sem acoplamento
+- Nomes representam corretamente o domínio ERP
+
+**SECURITY AUDIT:**
+- Sem secrets, tokens ou credenciais no código
+- `.env.example` sem valores reais
+- `.env` no `.gitignore`
+- Nenhuma vulnerabilidade identificada
+
+**PENDÊNCIAS:**
+- Instalar dependências Python (`pip install -r requirements.txt`) quando o ambiente virtual estiver pronto
+- Services de domínio ainda são stubs
+- Repositories e templates vazios
+
+**PRÓXIMA TAREFA:**
+TASK-002 — Modelar entidade Material (domínio PP-PI)
+
+---
+
+## TASK-002 — Modelar Entidades Material, Recipe, Order, Batch, QM, CO
+
+**Status:** DONE
+
+**Data:** 2026-08-11
+
+**IMPLEMENTADO:**
+- Entidades SQLAlchemy completas para PP-PI, QM e CO em `app/domain/entities.py`
+  - `Material` — material_code, material_name, material_type, base_unit, plant, is_active
+  - `ProductionRecipe` — com RecipeComponent e RecipeOperation (BOM + roteiro)
+  - `ProductionOrder` — order_number, planned/actual quantity, status, timestamps
+  - `ProductionResource` — work_center, resource_type, availability
+  - `Batch` — batch_number, yield_percent, status
+  - `ProductionConfirmation` — operation confirmation com quantities
+  - `MaterialConsumption` — raw material tracking
+  - `QualityInspection` — pH, alcohol%, temperature, CO2, appearance, microbiological
+  - `NonConformity` — defect tracking com severity e disposition
+  - `CostRecord` — planned/actual costs por categoria (material, labor, machine, energy) com variance properties
+- Schemas Pydantic para validação:
+  - `app/domain/production/material.py` — MaterialType enum, MaterialCreate/Update/List
+  - `app/domain/production/recipe.py` — ProductionOrderStatus, ProductionRecipe, ProductionOrder
+  - `app/domain/production/batch.py` — BatchStatus, Batch, ProductionConfirmation
+  - `app/domain/quality/inspection.py` — InspectionStatus, DefectSeverity, DefectDisposition, QualityInspection, NonConformity
+  - `app/domain/costing/cost.py` — CostRecord, CostRecordUpdate, CostSummary
+- Repository pattern completo:
+  - `app/repositories/base.py` — BaseRepository com CRUD genérico (get_by_id, get_all, count, add, delete)
+  - `app/repositories/production_repository.py` — MaterialRepository, ProductionOrderRepository, BatchRepository, ProductionRecipeRepository, ProductionResourceRepository
+  - `app/repositories/quality_repository.py` — QualityInspectionRepository, NonConformityRepository
+  - `app/repositories/costing_repository.py` — CostRecordRepository (create_for_order, update_actual)
+- `pytest.ini` com configuração de testes
+- `tests/conftest.py` com fixtures: engine (SQLite in-memory), session, sample_material, sample_recipe, sample_production_order
+- `tests/unit/test_material.py` — 9 testes (criação, repo, validação)
+- `tests/unit/test_production_order.py` — 5 testes (repo, modelo)
+- `tests/unit/test_cost_record.py` — 5 testes (variance, Pydantic)
+
+**ARQUIVOS CRIADOS:**
+- `app/domain/entities.py`
+- `app/domain/production/material.py`
+- `app/domain/production/recipe.py`
+- `app/domain/production/batch.py`
+- `app/domain/quality/inspection.py`
+- `app/domain/costing/cost.py`
+- `app/repositories/base.py`
+- `app/repositories/production_repository.py`
+- `app/repositories/quality_repository.py`
+- `app/repositories/costing_repository.py`
+- `app/repositories/__init__.py`
+- `tests/conftest.py`
+- `tests/unit/test_material.py`
+- `tests/unit/test_production_order.py`
+- `tests/unit/test_cost_record.py`
+- `pytest.ini`
+
+**ARQUIVOS ALTERADOS:**
+- `requirements.txt` (adicionado sqlalchemy, pydantic, pytest)
+- `app/repositories/__init__.py` (atualizado com exports)
+- `.venv/` criado com virtualenv + dependências instaladas
+
+**TESTES:**
+```
+============================= test session starts ==============================
+platform linux -- Python 3.11.2, pytest-8.3.0, pluggy-1.6.0
+cachedir: .pytest_cache
+rootdir: /workspace/simulador-erp-industrial
+configfile: pytest.ini
+plugins: anyio-4.14.2
+
+tests/unit/test_cost_record.py::TestCostRecordModel::test_cost_record_variance_none_when_no_actual PASSED [  4%]
+tests/unit/test_cost_record.py::TestCostRecordModel::test_cost_record_variance_positive PASSED [  8%]
+tests/unit/test_cost_record.py::TestCostRecordModel::test_cost_record_variance_negative PASSED [ 13%]
+tests/unit/test_cost_record.py::TestCostRecordPydantic::test_cost_record_create PASSED [ 17%]
+tests/unit/test_cost_record.py::TestCostRecordPydantic::test_cost_record_update_partial PASSED [ 21%]
+tests/unit/test_material.py::TestMaterialModel::test_material_creation PASSED [ 26%]
+tests/unit/test_material.py::TestMaterialModel::test_material_unique_code PASSED [ 30%]
+tests/unit/test_material.py::TestMaterialModel::test_material_inactive PASSED [ 34%]
+tests/unit/test_material.py::TestMaterialRepository::test_create_material PASSED [ 39%]
+tests/unit/test_material.py::TestMaterialRepository::test_get_by_code PASSED [ 43%]
+tests/unit/test_material.py::TestMaterialRepository::test_get_by_code_not_found PASSED [ 47%]
+tests/unit/test_material.py::TestMaterialRepository::test_update_material PASSED [ 52%]
+tests/unit/test_material.py::TestMaterialRepository::test_list_active PASSED [ 56%]
+tests/unit/test_material.py::TestMaterialRepository::test_delete_material PASSED [ 60%]
+tests/unit/test_material.py::TestMaterialRepository::test_delete_not_found PASSED [ 65%]
+tests/unit/test_material.py::TestMaterialPydantic::test_material_create_validation PASSED [ 69%]
+tests/unit/test_material.py::TestMaterialPydantic::test_material_create_empty_code_fails PASSED [ 73%]
+tests/unit/test_production_order.py::TestProductionOrderModel::test_order_creation PASSED [ 78%]
+tests/unit/test_production_order.py::TestProductionOrderModel::test_order_status_enum PASSED [ 82%]
+tests/unit/test_production_order.py::TestProductionOrderRepository::test_get_by_number PASSED [ 86%]
+tests/unit/test_production_order.py::TestProductionOrderRepository::test_get_by_number_not_found PASSED [ 91%]
+tests/unit/test_production_order.py::TestProductionOrderRepository::test_get_by_status PASSED [ 95%]
+tests/unit/test_production_order.py::TestProductionOrderRepository::TestProductionOrderRepository::test_get_with_material PASSED [100%]
+
+============================== 23 passed in 0.50s ==============================
+```
+- `.venv/bin/python -m compileall app/` → OK
+- `.venv/bin/pytest tests/ -v` → 23 passed
+- `npm run typecheck` → OK (TS legado)
+
+**AUTO REVIEW:**
+- Arquitetura limpa e modular — entities/schemas/repositories separados
+- Domínio SAP-style com material_code, order_number, batch_number
+- Enums para status (ProductionOrderStatus, BatchStatus, InspectionStatus, DefectSeverity, etc.)
+- Variance calculado automaticamente em CostRecord (property variance e variance_percent)
+- BaseRepository genérico e reutilizável
+- Testes cobrem CRUD, validação, edge cases (unique constraint, variance calculation)
+- Codificação UTF-8 consistente
+
+**SECURITY AUDIT:**
+- Sem secrets, tokens ou credenciais
+- Sem SQL injection (usa SQLAlchemy ORM com parameterized queries)
+- Validação de entrada via Pydantic (Field constraints, enums, tipos)
+- `.env.example` sem valores reais
+- Nenhuma vulnerabilidade identificada
+
+**PENDÊNCIAS:**
+- TASK-003: Production Service (lógica de negócio PP-PI)
+- TASK-004: Database connection + Alembic migrations
+- TASK-005: API endpoints (FastAPI)
+- TASK-006: Simulation engine (generate_data)
+
+**PRÓXIMA TAREFA:**
+TASK-003 — Criar ProductionService e database setup
+  → `app/services/production_service.py` (lógica de negócio)
+  → `app/database/connection.py` (SQLAlchemy session)
+  → Alembic setup para PostgreSQL
+  → Migrations para criar tabelas no banco
+
+---
+
+## Stack Tecnológica Atual
+
+| Tecnologia | Versão | Uso |
+|-----------|--------|-----|
+| Python | 3.11.2 | Linguagem principal |
+| FastAPI | 0.115.0 | Framework API |
+| SQLAlchemy | 2.0.35 | ORM |
+| Pydantic | 2.9.0 | Validação de dados |
+| pytest | 8.3.0 | Testes |
+| SQLite | (in-memory) | Testes unitários |
+
+## Estrutura de Diretórios Atual
+
+```
+simulador-erp-industrial/
+├── app/
+│   ├── __init__.py
+│   ├── main.py                    # FastAPI app base + setup_logging
+│   ├── core/                      # exceptions + logging
+│   ├── api/                       # (vazio — próximo passo)
+│   ├── domain/
+│   │   ├── entities.py            # Todos os modelos SQLAlchemy + CHECK constraints
+│   │   ├── production/
+│   │   │   ├── material.py        # Pydantic schemas
+│   │   │   ├── recipe.py
+│   │   │   └── batch.py
+│   │   ├── quality/
+│   │   │   └── inspection.py
+│   │   └── costing/
+│   │       └── cost.py
+│   ├── repositories/
+│   │   ├── base.py                # BaseRepository genérico (func.count, contrato transacional)
+│   │   ├── production_repository.py
+│   │   ├── quality_repository.py
+│   │   └── costing_repository.py
+│   ├── services/
+│   │   └── production_service.py  # ProductionService (validação + transação)
+│   ├── simulation/               # (vazio — TASK-008)
+│   ├── analytics/                 # (vazio)
+│   ├── templates/                 # (vazio)
+│   └── static/                    # (vazio)
+├── tests/
+│   ├── conftest.py               # Fixtures pytest
+│   └── unit/
+│       ├── test_material.py
+│       ├── test_production_order.py
+│       ├── test_cost_record.py
+│       ├── test_quality.py
+│       ├── test_batch.py
+│       ├── test_recipe.py
+│       ├── test_costing_repository.py
+│       └── test_production_service.py
+├── database/                      # (vazio — TASK-004)
+├── scripts/                      # (vazio)
+├── requirements.txt
+├── pytest.ini
+├── .env.example
+└── .venv/                        # Virtualenv com dependências instaladas
+```
+
+## Variáveis de Ambiente (.env.example)
+
+```env
+DATABASE_URL=postgresql://user:password@localhost:5432/industrial_erp
+APP_HOST=0.0.0.0
+APP_PORT=8000
+SECRET_KEY=change-me-in-production
+SIM_FAILURE_RATE=0.03
+SIM_YIELD_MEAN=0.96
+SIM_INSPECTION_FAILURE_RATE=0.04
+SIM_DOWNTIME_PROBABILITY=0.05
+```
+
+## Comandos Disponíveis
+
+```bash
+# Python
+.venv/bin/python -m compileall app/       # Validação estática
+.venv/bin/pytest tests/ -v                 # Testes unitários
+
+# TypeScript (legado)
+npm run typecheck                          # Verificação TypeScript
+npm run build                              # Build Vite
+npm run dev                                # Dev server
+```
+
+## Notas para o Próximo Modelo
+
+1. **Sempre leia os documentos relevantes antes de implementar** — hierarchy defined in TASKS.md section 5
+2. **Siga o ciclo**: TASK → TEST → AUTO REVIEW → SECURITY AUDIT → HANDOFF
+3. **Mantenha o foco no backend Python** — o valor está em processo/dados/regras/integração/analytics, não em frontend
+4. **Dados são sintéticos** — "Synthetic data for educational and simulation purposes"
+5. **Não afirme que é SAP** — use "inspired by SAP concepts"
+6. **Use Decimal para valores monetários** — nunca float
+7. **Para testes use SQLite in-memory** — conforme fixtures em `tests/conftest.py`
+8. **Próximo passo: TASK-003** — ProductionService + database connection
