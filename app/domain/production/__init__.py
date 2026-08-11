@@ -1,0 +1,1 @@
+"""Industrial ERP Simulator — PP-PI domain."""

@@ -1,0 +1,1 @@
+"""Industrial ERP Simulator — Analytics & metrics."""

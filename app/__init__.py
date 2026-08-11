@@ -1,0 +1,1 @@
+"""Industrial ERP Simulator — Production Planning for Process Industries (PP-PI)."""
