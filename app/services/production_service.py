@@ -14,6 +14,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.core.events import EVENT_BATCH_CREATED, EVENT_ORDER_COMPLETED, event_bus
 from app.core.exceptions import (
     ComponentUnitMismatchError,
     DuplicateEntityError,
@@ -175,7 +176,13 @@ class ProductionService:
             order.actual_end = now
 
         order.status = status.value
-        self._session.commit()
+        try:
+            if status in (ProductionOrderStatus.COMPLETED, ProductionOrderStatus.PARTIAL):
+                event_bus.publish(EVENT_ORDER_COMPLETED, session=self._session, order=order)
+            self._session.commit()
+        except Exception:
+            self._session.rollback()
+            raise
         logger.info("Production order %s status %s -> %s", order.order_number, current.value, status.value)
         return order
 
@@ -207,12 +214,16 @@ class ProductionService:
         )
         try:
             created = self.batches.add(batch)
+            event_bus.publish(EVENT_BATCH_CREATED, session=self._session, batch=created)
             self._session.commit()
             logger.info("Batch %s created", created.batch_number)
             return created
         except IntegrityError:
             self._session.rollback()
             raise DuplicateEntityError("Batch", data.batch_number) from None
+        except Exception:
+            self._session.rollback()
+            raise
 
     # ── Production Resources ───────────────────────────────────────────
 

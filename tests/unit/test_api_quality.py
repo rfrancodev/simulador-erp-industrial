@@ -87,15 +87,10 @@ def _setup_batch(client: TestClient, session: Session):
 # ── Quality Inspections ──────────────────────────────────────────────────────
 
 class TestInspectionsApi:
-    def test_create_inspection(self, client: TestClient, _setup_batch):
-        resp = client.post("/api/quality/inspections", json={
-            "batch_id": 1,
-            "inspection_lot": "QI-2026-0001",
-        })
-        assert resp.status_code == 201
-        body = resp.json()
-        assert body["inspection_lot"] == "QI-2026-0001"
-        assert body["inspection_status"] == "PENDING"
+    def test_batch_auto_creates_inspection(self, client: TestClient, _setup_batch):
+        resp = client.get("/api/quality/inspections/batch/1")
+        assert resp.status_code == 200
+        assert resp.json()["inspection_status"] == "PENDING"
 
     def test_create_inspection_invalid_batch(self, client: TestClient):
         resp = client.post("/api/quality/inspections", json={
@@ -104,51 +99,47 @@ class TestInspectionsApi:
         })
         assert resp.status_code == 404
 
-    def test_create_inspection_duplicate_lot(self, client: TestClient, _setup_batch):
-        payload = {"batch_id": 1, "inspection_lot": "QI-DUP"}
-        client.post("/api/quality/inspections", json=payload)
-        resp = client.post("/api/quality/inspections", json=payload)
+    def test_create_inspection_for_batch_with_existing_inspection(self, client: TestClient, _setup_batch):
+        resp = client.post("/api/quality/inspections", json={
+            "batch_id": 1,
+            "inspection_lot": "QI-DUP",
+        })
         assert resp.status_code == 409
 
     def test_list_inspections(self, client: TestClient, _setup_batch):
-        client.post("/api/quality/inspections", json={"batch_id": 1, "inspection_lot": "QI-LIST"})
         resp = client.get("/api/quality/inspections")
         assert resp.status_code == 200
         assert resp.json()["total"] == 1
         assert len(resp.json()["items"]) == 1
 
     def test_get_inspection(self, client: TestClient, _setup_batch):
-        client.post("/api/quality/inspections", json={"batch_id": 1, "inspection_lot": "QI-GET"})
         resp = client.get("/api/quality/inspections/1")
         assert resp.status_code == 200
-        assert resp.json()["inspection_lot"] == "QI-GET"
+        assert resp.json()["inspection_status"] == "PENDING"
 
     def test_get_inspection_not_found(self, client: TestClient):
         resp = client.get("/api/quality/inspections/999")
         assert resp.status_code == 404
 
     def test_get_inspection_by_lot(self, client: TestClient, _setup_batch):
-        client.post("/api/quality/inspections", json={"batch_id": 1, "inspection_lot": "QI-BY-LOT"})
-        resp = client.get("/api/quality/inspections/lot/QI-BY-LOT")
+        resp = client.get("/api/quality/inspections/lot/QI-000000000001")
         assert resp.status_code == 200
-        assert resp.json()["inspection_lot"] == "QI-BY-LOT"
+        assert resp.json()["inspection_status"] == "PENDING"
 
     def test_get_inspection_by_lot_not_found(self, client: TestClient):
         resp = client.get("/api/quality/inspections/lot/NOPE")
         assert resp.status_code == 404
 
     def test_get_inspection_by_batch(self, client: TestClient, _setup_batch):
-        client.post("/api/quality/inspections", json={"batch_id": 1, "inspection_lot": "QI-BY-BAT"})
         resp = client.get("/api/quality/inspections/batch/1")
         assert resp.status_code == 200
-        assert resp.json()["inspection_lot"] == "QI-BY-BAT"
+        assert resp.json()["inspection_status"] == "PENDING"
 
-    def test_get_inspection_by_batch_not_found(self, client: TestClient, _setup_batch):
-        resp = client.get("/api/quality/inspections/batch/1")
+    def test_get_inspection_by_batch_not_found(self, client: TestClient):
+        resp = client.get("/api/quality/inspections/batch/999")
         assert resp.status_code == 404
 
     def test_update_inspection_result(self, client: TestClient, _setup_batch):
-        client.post("/api/quality/inspections", json={"batch_id": 1, "inspection_lot": "QI-RES"})
         client.put("/api/quality/inspections/1/result", json={"inspection_status": "IN_PROGRESS"})
         resp = client.put("/api/quality/inspections/1/result", json={
             "inspection_status": "PASSED",
@@ -164,17 +155,14 @@ class TestInspectionsApi:
         assert body["alcohol_percent"] == "4.7"
 
     def test_update_inspection_result_invalid_transition(self, client: TestClient, _setup_batch):
-        client.post("/api/quality/inspections", json={"batch_id": 1, "inspection_lot": "QI-TRANS"})
         resp = client.put("/api/quality/inspections/1/result", json={"inspection_status": "PASSED"})
         assert resp.status_code == 409
 
     def test_update_inspection_result_invalid_status(self, client: TestClient, _setup_batch):
-        client.post("/api/quality/inspections", json={"batch_id": 1, "inspection_lot": "QI-BAD"})
         resp = client.put("/api/quality/inspections/1/result", json={"inspection_status": "INVALID"})
         assert resp.status_code == 422
 
     def test_update_inspection_result_invalid_ph(self, client: TestClient, _setup_batch):
-        client.post("/api/quality/inspections", json={"batch_id": 1, "inspection_lot": "QI-BADPH"})
         resp = client.put("/api/quality/inspections/1/result", json={
             "inspection_status": "PASSED",
             "pH": "20",
@@ -186,7 +174,6 @@ class TestInspectionsApi:
         assert resp.status_code == 404
 
     def test_update_inspection_result_whitelist_protects_identity(self, client: TestClient, _setup_batch):
-        client.post("/api/quality/inspections", json={"batch_id": 1, "inspection_lot": "QI-LOT2"})
         client.put("/api/quality/inspections/1/result", json={"inspection_status": "IN_PROGRESS"})
         resp = client.put("/api/quality/inspections/1/result", json={
             "inspection_status": "PASSED",
@@ -194,14 +181,13 @@ class TestInspectionsApi:
         })
         assert resp.status_code == 200
         # identity fields are not mutable via the result endpoint
-        assert resp.json()["inspection_lot"] == "QI-LOT2"
+        assert resp.json()["inspection_lot"] == "QI-000000000001"
 
 
 # ── Non-Conformities ─────────────────────────────────────────────────────────
 
 class TestNonConformitiesApi:
     def test_add_non_conformity(self, client: TestClient, _setup_batch):
-        client.post("/api/quality/inspections", json={"batch_id": 1, "inspection_lot": "QI-NC"})
         resp = client.post("/api/quality/inspections/1/non-conformities", json={
             "defect_type": "OFF_SPEC",
             "defect_code": "NC-001",
@@ -226,7 +212,6 @@ class TestNonConformitiesApi:
         assert resp.status_code == 404
 
     def test_add_non_conformity_invalid_enum(self, client: TestClient, _setup_batch):
-        client.post("/api/quality/inspections", json={"batch_id": 1, "inspection_lot": "QI-NC2"})
         resp = client.post("/api/quality/inspections/1/non-conformities", json={
             "defect_type": "BAD",
             "defect_code": "NC-002",
@@ -237,7 +222,6 @@ class TestNonConformitiesApi:
         assert resp.status_code == 422
 
     def test_list_non_conformities(self, client: TestClient, _setup_batch):
-        client.post("/api/quality/inspections", json={"batch_id": 1, "inspection_lot": "QI-NCL"})
         client.post("/api/quality/inspections/1/non-conformities", json={
             "defect_type": "OFF_SPEC",
             "defect_code": "NC-003",
@@ -258,7 +242,6 @@ class TestNonConformitiesApi:
         assert len(resp.json()["items"]) == 2
 
     def test_list_non_conformities_empty(self, client: TestClient, _setup_batch):
-        client.post("/api/quality/inspections", json={"batch_id": 1, "inspection_lot": "QI-NCE"})
         resp = client.get("/api/quality/inspections/1/non-conformities")
         assert resp.status_code == 200
         assert resp.json()["total"] == 0

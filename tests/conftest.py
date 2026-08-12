@@ -23,6 +23,15 @@ os.environ.setdefault("SECRET_KEY", "test-only-secret-key-that-is-long-enough-fo
 
 
 @pytest.fixture(autouse=True)
+def _register_integration():
+    """Ensure cross-module integration handlers are registered for every test."""
+    from app.services.integration import register_integration_handlers
+
+    register_integration_handlers()
+    yield
+
+
+@pytest.fixture(autouse=True)
 def _admin_auth_override(request):
     """Give every API test an authenticated admin by default.
 

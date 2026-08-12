@@ -4,6 +4,103 @@ This file documents the completion of each task, serving as the source of truth 
 
 ---
 
+## TASK-012.1 — Correções Pós-Auditoria (M-22, L-35, L-36, L-37, I-56, I-62)
+
+**Status:** DONE
+
+**Data:** 2026-08-12
+
+**IMPLEMENTADO:**
+- **M-22:** `create_batch` e `update_order_status` fazem `except Exception: rollback(); raise` após publicar eventos
+- **L-35:** teste de idempotência `test_cost_record_not_duplicated`
+- **L-36:** documentação reforçada (placeholder per-liter, não derivado do BOM)
+- **L-37:** `order.completed` publicado também para `PARTIAL`
+- **I-56/I-62:** `EventBus.unsubscribe()` + teste `test_create_batch_rolls_back_when_handler_fails`
+
+**ARQUIVOS ALTERADOS:**
+- `app/core/events.py` — `unsubscribe()`
+- `app/services/production_service.py` — rollback genérico + evento para PARTIAL
+- `app/services/integration.py` — docstring
+- `tests/unit/test_integration.py` — +2 testes
+
+**TESTES:**
+```
+228 passed in 19.79s
+```
+- `compileall` OK · `typecheck` OK · `lint` OK · `alembic upgrade/downgrade` OK
+
+**SECURITY AUDIT:**
+- 0 CRITICAL/HIGH/MEDIUM/LOW restantes
+- Pendências INFO (I-57, I-58, I-61): documentadas como "ação futura"
+
+**PRÓXIMA TAREFA:**
+TASK-013 — Docker/deploy (Dockerfile + docker-compose + README)
+
+---
+
+## TASK-012 — Integração automática PP→QM→CO via eventos
+
+**Status:** DONE
+
+**Data:** 2026-08-12
+
+**IMPLEMENTADO:**
+- `app/core/events.py` — `EventBus` in-memory (subscribe/publish) + `EVENT_BATCH_CREATED` / `EVENT_ORDER_COMPLETED`
+- `app/services/integration.py` — handlers idempotentes registrados via `register_integration_handlers()` (chamado no `main.py`):
+  - `batch.created` → auto-cria `QualityInspection` PENDING (gatilho QM, conforme `plano/06`)
+  - `order.completed` → auto-cria `CostRecord` com custos planejados estimados por litro (gatilho CO)
+- `ProductionService.create_batch` publica `batch.created` antes do commit
+- `ProductionService.update_order_status(COMPLETED)` publica `order.completed` antes do commit
+- Contrato transacional: handlers usam repositórios (flush), o publisher commita — tudo numa única transação
+- Handlers verificam se o registro já existe (idempotentes, sem duplicação)
+
+**ARQUIVOS CRIADOS:**
+- `app/core/events.py`
+- `app/services/integration.py`
+- `tests/unit/test_integration.py` (4 testes)
+
+**ARQUIVOS ALTERADOS:**
+- `app/services/production_service.py` — importa `event_bus` + publica eventos
+- `app/main.py` — `register_integration_handlers()` no startup
+- `tests/conftest.py` — autouse fixture registra handlers
+- `tests/unit/test_api_quality.py` — testes atualizados para o fluxo automático (batch já cria inspeção PENDING)
+
+**DOCUMENTOS CONSULTADOS:**
+- `plano/08-integracao-eventos.md` — modelo de eventos PP-PI→QM→CO
+- `plano/06-dominio-qm.md` — gatilho "toda ordem gera inspeção vinculada ao batch"
+
+**TESTES:**
+```
+226 passed in 20.02s
+```
+- `.venv/bin/python -m compileall app/` → OK
+- `.venv/bin/pytest tests/` → **226 passed** (era 222)
+- `npm run typecheck` → OK
+- `npm run lint` → OK
+- Smoke test API: criar batch → auto-inspeção PENDING; completar ordem → auto cost record (planned_total R$ 24.300)
+
+**AUTO REVIEW:**
+- EventBus desacopla módulos (PP-PI não importa QM/CO diretamente)
+- Handlers idempotentes + repositórios flush-only preservam atomicidade (M-05)
+- Simulação usa ORM direto (não dispara eventos) — correto, pois gera inspeções/custos próprios
+- Testes de qualidade refletem o novo fluxo automático
+
+**SECURITY AUDIT:**
+- SQL injection: ✅ ORM parametrizado; sem input de usuário nos handlers
+- inspection_lot auto: derivado de `batch.id` (autoincrement), sem input externo
+- custos auto: calculados da quantidade da ordem, sem input externo
+- EventBus: in-memory síncrono, sem rede/serialização (sem superfície de ataque)
+- Secrets: ✅ Nenhum
+
+**PENDÊNCIAS:**
+- Passo 6 do plano/08 (impacto QM→CO de rework quando inspeção FAIL) não implementado automaticamente — o cost record é criado no completion; o fator de rework é demonstrado na simulação
+- Atomicidade "eventual" entre módulos se o publisher não commit (o `session_dependency` faz rollback automático)
+
+**PRÓXIMA TAREFA:**
+TASK-013 — Docker/deploy (Dockerfile + docker-compose + README)
+
+---
+
 ## TASK-011.1 — Correções Pós-Auditoria (L-33, L-34, I-51, I-54)
 
 **Status:** DONE

@@ -2719,3 +2719,253 @@ Diferença de ~3000x no tempo de resposta permite a um atacante distinguir "usu�
 - I-52: sem cache para `monthly_trend`
 - I-53: dashboard HTML público (I-31)
 - I-55: sem logging do endpoint
+
+---
+
+## Auditoria TASK-012 — Integração automática PP→QM→CO via eventos
+
+**Data:** 2026-08-12
+**Revisor:** Auditor de Segurança/Qualidade (pós-implementação)
+**Escopo:** `app/core/events.py`, `app/services/integration.py`, `app/services/production_service.py` (publicação de eventos), `app/main.py` (registro de handlers), `tests/conftest.py` (autouse fixture), `tests/unit/test_integration.py`, `tests/unit/test_api_quality.py` (atualização).
+
+### Sumário
+
+| Severidade | Quantidade |
+|-----------|-----------|
+| CRITICAL | 0 |
+| HIGH | 0 |
+| MEDIUM | 1 |
+| LOW | 3 |
+| INFO | 7 |
+
+---
+
+## MEDIUM
+
+### M-22 — Serviços publicam eventos antes do commit mas capturam apenas `IntegrityError`
+
+**Arquivo:** `app/services/production_service.py:211-219`, `178-181`
+**Problema:** `create_batch` publica o evento `batch.created` ANTES do commit. Se o handler `_auto_create_inspection` lançar uma exceção que NÃO seja `IntegrityError` (ex: `ValueError`, `TypeError`, DB error), a exceção propaga para o caller sem que o `create_batch` faça rollback. O batch já foi flushado; o caller (sem `session_dependency`) precisa lembrar de fazer rollback.
+
+O mesmo padrão se aplica a `update_order_status(COMPLETED)` que publica `order.completed` sem try/except.
+
+**Impacto:** Em caso de falha inesperada no handler, a sessão pode ficar em estado inconsistente. Na API, o `session_dependency` captura `Exception` e faz rollback automaticamente (M-09), então o impacto é limitado. No uso direto do serviço (tests, scripts), o caller é responsável.
+
+**Correção sugerida:** Envolver publicação de eventos em try/except genérico com rollback:
+```python
+try:
+    created = self.batches.add(batch)
+    event_bus.publish(...)
+    self._session.commit()
+    return created
+except IntegrityError:
+    self._session.rollback()
+    raise DuplicateEntityError(...) from None
+except Exception:
+    self._session.rollback()
+    raise
+```
+
+**Prioridade:** Média (alinhamento com o padrão M-05 de transações)
+
+---
+
+## LOW
+
+### L-35 — Ordem COMPLETED duplicada não tem teste de idempotência
+
+**Arquivo:** `tests/unit/test_integration.py`
+**Problema:** O handler `_auto_create_cost_record` é idempotente (verifica `repo.get_by_order` antes de criar). Mas não há teste que verifique esse comportamento: chamar `update_order_status(COMPLETED)` duas vezes na mesma ordem (ou completar uma ordem que já tem cost record) não deve duplicar o cost record.
+
+**Impacto:** A idempotência é documentada no código, mas não é verificada por teste. Regressão futura não seria detectada.
+
+**Correção sugerida:** Adicionar teste que tenta criar cost record duplicado e verifica que permanece 1.
+
+**Prioridade:** Baixa
+
+---
+
+### L-36 — Cost record auto usa custos sintéticos per-liter (não derivados do BOM)
+
+**Arquivo:** `app/services/integration.py:29-32, 56-68`
+**Problema:** O `_auto_create_cost_record` calcula custos planejados baseados em constantes hardcoded (`_MATERIAL_PER_L = R$ 1.60`, etc.) multiplicadas pela quantidade da ordem. Não deriva dos componentes do BOM (RecipeComponent) nem dos recursos do roteiro (RecipeOperation). Isso diverge do modelo da simulation engine (TASK-010) que calcula do BOM com preços unitários.
+
+**Impacto:** Custos planejados do cost record auto são estimativas, não reflexo do BOM. Aceitável como placeholder (documentado como "synthetic placeholders, refined later via the CO API").
+
+**Correção sugerida:** Derivar custos do BOM (RecipeComponent × preço unitário) quando disponível. Ou documentar explicitamente que o cost record auto é placeholder.
+
+**Prioridade:** Baixa
+
+---
+
+### L-37 — Ordem em estado PARTIAL não dispara evento `order.completed`
+
+**Arquivo:** `app/services/production_service.py:179`
+**Problema:** O gatilho `order.completed` é publicado APENAS quando `status == ProductionOrderStatus.COMPLETED`. Se uma ordem transicionar para `PARTIAL` (também finalizado, mas parcialmente), nenhum cost record é auto-criado.
+
+**Impacto:** Ordens parcialmente completadas não têm cost record auto. O usuário precisa criá-lo manualmente via API de CO. O plano/08 não é explícito sobre PARTIAL, mas a simulação não gera ordens PARTIAL.
+
+**Correção sugerida:** Publicar `order.completed` também para `PARTIAL`, ou documentar explicitamente que só `COMPLETED` dispara o gatilho.
+
+**Prioridade:** Baixa
+
+---
+
+## INFO
+
+### I-56 — Flag `_registered` em `integration.py` não é resetável
+
+**Arquivo:** `app/services/integration.py:34, 37-44`
+**Observação:** O flag `_registered` impede múltiplos registros, mas não pode ser resetado. Se um teste precisasse de handlers diferentes (ex: testar sem handlers), não conseguiria. O conftest chama `register_integration_handlers()` no autouse, mas como é idempotente, funciona.
+**Ação futura:** Se necessário, expor `unregister_integration_handlers()` para testes.
+
+---
+
+### I-57 — `inspection_lot` auto é determinístico (baseado em `batch.id`)
+
+**Arquivo:** `app/services/integration.py:51`
+**Observação:** `f"QI-{batch.id:012d}"` é previsível. Para fins de demo/simulação, isso é aceitável. Em produção, pode ser desejável usar UUID ou timestamp para obscurar o ID.
+
+---
+
+### I-58 — Sem logs de erro explícitos nos handlers
+
+**Arquivo:** `app/services/integration.py`
+**Observação:** Os handlers usam `logger.info` para sucesso, mas não têm `logger.error` para falhas (assumindo que falhas propagam exceções). Se um handler capturar exceções internamente, deveria logar. Atual: se falhar, a exceção propaga (correto, mas sem log de contexto).
+**Ação futura:** Adicionar try/except + `logger.error` nos handlers se capturarem exceções.
+
+---
+
+### I-59 — `EventBus.publish` usa `list()` para cópia defensiva
+
+**Arquivo:** `app/core/events.py:26`
+**Observação:** `for handler in list(self._handlers[event_type])` itera sobre uma cópia da lista, prevenindo problemas se um handler registrar outro handler durante a execução. Bom design.
+
+---
+
+### I-60 — Custos calculados com `Decimal` (precisão correta)
+
+**Arquivo:** `app/services/integration.py:63-66`
+**Observação:** Os cálculos usam `Decimal` com `.quantize(Decimal("0.01"))`. Precisão monetária correta.
+
+---
+
+### I-61 — `update_order_status` publica apenas para `COMPLETED`
+
+**Arquivo:** `app/services/production_service.py:179-180`
+**Observação:** `if status == ProductionOrderStatus.COMPLETED:` é explícito e correto. PARTIAL, CLOSED, DELIVERED não disparam o gatilho. Comportamento consistente com L-37.
+
+---
+
+### I-62 — Sem teste de cenário de falha no handler
+
+**Arquivo:** `tests/unit/test_integration.py`
+**Observação:** Não há teste que simule uma falha no handler (ex: handler lança exceção) e verifique que o `create_batch` faz rollback. Isso é coberto pelo padrão M-05 e pelo `session_dependency`, mas um teste específico daria mais confiança.
+
+---
+
+## Análise Consolidada (TASK-012)
+
+### ✅ Pontos Positivos
+
+| Verificação | Resultado |
+|------------|-----------|
+| SQL injection | ✅ ORM parametrizado; sem input de usuário nos handlers |
+| EventBus desacoplado | ✅ PP-PI não importa QM/CO; handlers são o ponto de integração |
+| Idempotência | ✅ Handlers verificam existência antes de criar |
+| Atomicidade | ✅ Evento publicado antes do commit; handler usa repositórios (flush); publisher commit |
+| Segredos | ✅ Nenhum no código |
+| Validação de entrada | ✅ Payloads são objetos ORM já validados pelo Pydantic |
+| Logs | ✅ `logger.info` para auto-criações |
+| Integração PP→QM→CO | ✅ Fluxo correto: batch→inspeção, order completed→cost record |
+| Testes | ✅ 4 testes novos + testes de qualidade atualizados |
+| Performance | ✅ Overhead de ~2 queries por gatilho (aceitável) |
+
+### ⚠️ Vulnerabilidades Identificadas
+
+| Categoria | Severidade | Descrição |
+|-----------|-----------|-----------|
+| Tratamento de erros | MEDIUM | M-22 — Serviços capturam apenas `IntegrityError`; exceções de handlers podem deixar sessão inconsistente |
+| Testes | LOW | L-35 — Ordem COMPLETED duplicada não testada |
+| Dados | LOW | L-36 — Custos auto sintéticos (não derivados do BOM) |
+| Regras de negócio | LOW | L-37 — PARTIAL não dispara evento |
+| Design | INFO | I-56 — Flag não resetável |
+| Design | INFO | I-57 — inspection_lot determinístico |
+| Logs | INFO | I-58 — Sem logs de erro nos handlers |
+| Design | INFO | I-59 — `list()` defensivo no publish |
+| Dados | INFO | I-60 — Decimal para custos |
+| Design | INFO | I-61 — Apenas COMPLETED dispara |
+| Testes | INFO | I-62 — Sem teste de falha no handler |
+
+### Análise de Testes
+
+**Cobertura:**
+- `test_create_batch_auto_creates_inspection` — batch cria inspeção PENDING ✓
+- `test_inspection_not_duplicated` — dois batches, duas inspeções ✓
+- `test_complete_order_auto_creates_cost_record` — ordem completada cria cost record ✓
+- `test_cost_record_not_created_before_completion` — cost record não criado antes de COMPLETED ✓
+- `test_batch_auto_creates_inspection` (API) — via endpoint ✓
+- `test_create_inspection_for_batch_with_existing_inspection` — 409 ao duplicar ✓
+
+**Testes Ausentes:**
+- I-62: cenário de falha no handler (exceção)
+- L-35: ordem COMPLETED duplicada (idempotência)
+- L-37: ordem PARTIAL não dispara evento
+- L-36: cost record auto valores planejados (soma = total, CHECK constraint)
+
+**Resultado:** 226 testes passando (era 222).
+
+---
+
+## Conclusão (Pós-Auditoria TASK-012)
+
+**Estado Geral:** ✅ **BOM** — TASK-012 entrega integração automática PP→QM→CO via EventBus, demonstrando o conceito de "sistema orientado a eventos" do plano/08. Nenhum achado CRITICAL/HIGH.
+
+**Achados:** 0 CRITICAL, 0 HIGH, 1 MEDIUM, 3 LOW, 7 INFO.
+
+**Pronto para Produção:** ✅ Sim (como demo/simulação). O achado MEDIUM é uma melhoria de robustez.
+
+**Segurança:** ✅ Sem vulnerabilidades. EventBus in-memory sem superfície de ataque; handlers idempotentes; sem segredos.
+
+**Risco de Segurança:** Baixo — integração in-process sem exposição externa.
+
+**Recomendação Final:** Abordar M-22 (try/except genérico com rollback) na próxima iteração. Demais achados são melhorias incrementais.
+
+---
+
+## Correções Pós-Auditoria TASK-012
+
+**Data:** 2026-08-12
+**Status:** Corrigido — 1 MEDIUM + 3 LOW + 1 INFO tratados
+**Validação:** `.venv/bin/pytest tests/` → **228 passed** (era 226); `compileall` OK; `npm run typecheck` OK; `npm run lint` OK; `alembic upgrade/downgrade` OK
+
+| Item | Severidade | Status | Correção Aplicada |
+|------|-----------|--------|-------------------|
+| M-22 exceção genérica sem rollback | MEDIUM | ✅ Corrigido | `create_batch` e `update_order_status` agora fazem `except Exception: rollback(); raise` após publicar eventos |
+| L-35 idempotência do cost record | LOW | ✅ Corrigido | Teste `test_cost_record_not_duplicated` (cost record pré-existente não é duplicado) |
+| L-36 custo auto sintético | LOW | ✅ Corrigido | Documentação reforçada (placeholder per-liter, não derivado do BOM; simulation deriva do BOM) |
+| L-37 PARTIAL não dispara evento | LOW | ✅ Corrigido | `order.completed` agora publicado também para `PARTIAL` |
+| I-62 sem teste de falha no handler | INFO | ✅ Corrigido | Teste `test_create_batch_rolls_back_when_handler_fails` (rollback quando handler lança exceção) |
+| I-56 flag `_registered` não resetável | INFO | ✅ Melhorado | `EventBus.unsubscribe()` adicionado (permite testes com handlers temporários) |
+
+### Testes Adicionados
+
+- `tests/unit/test_integration.py` +2 testes: `test_cost_record_not_duplicated`, `test_create_batch_rolls_back_when_handler_fails`
+
+**Total: 228 testes (era 226)**
+
+### Arquivos Alterados
+- `app/core/events.py` — `unsubscribe()`
+- `app/services/production_service.py` — `except Exception` com rollback + evento para `PARTIAL`
+- `app/services/integration.py` — documentação do placeholder
+- `tests/unit/test_integration.py` — 2 testes novos
+
+### Revalidação de Segurança
+- Transações com rollback garantido em caso de falha do handler (M-22)
+- Idempotência verificada por teste (L-35)
+- EventBus suporta remoção de handlers (I-56)
+
+**Pendências restantes (INFO, "ação futura"):**
+- I-57: `inspection_lot` determinístico (ok para demo)
+- I-58: sem logs de erro nos handlers (handlers propagam exceções; service faz rollback + log)
+- I-61: apenas COMPLETED/PARTIAL disparam (comportamento explícito)

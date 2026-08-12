@@ -402,7 +402,27 @@ Evitar tarefas gigantes como "Implementar todo o módulo PP-PI."
 - I-51: loops de agregação consolidados · I-54: 3 testes de borda (fallback, sem inspeção, fronteira de ano)
 - 222 testes (era 219)
 
-### Próxima: TASK-012 — Integração automática PP→QM→CO via eventos
+### TASK-012 — Integração automática PP→QM→CO via eventos
+**Status:** DONE
+- `app/core/events.py` — `EventBus` in-memory (subscribe/publish/unsubscribe) + constantes de evento
+- `app/services/integration.py` — handlers idempotentes registrados no startup:
+  - `batch.created` → auto-cria QualityInspection PENDING (gatilho QM)
+  - `order.completed` → auto-cria CostRecord com custos planejados (gatilho CO)
+- `ProductionService.create_batch` e `update_order_status(COMPLETED/PARTIAL)` publicam eventos antes do commit (atomicidade)
+- Handlers usam repositórios (flush); publisher commit — transação única
+- Testes de qualidade atualizados para o fluxo automático
+- 226 testes (era 222)
+
+### TASK-012.1 — Correções Pós-Auditoria
+**Status:** DONE
+- M-22: `except Exception` com rollback em create_batch/update_order_status
+- L-35: teste de idempotência (cost record não duplicado)
+- L-36: documentação do placeholder sintético
+- L-37: evento `order.completed` também para PARTIAL
+- I-56/I-62: `EventBus.unsubscribe` + teste de falha no handler
+- 228 testes (era 226)
+
+### Próxima: TASK-013 — Docker/deploy (Dockerfile + docker-compose + README)
 
 ---
 

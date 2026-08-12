@@ -23,8 +23,10 @@ from app.core.exceptions import (
 from app.core.logging import setup_logging
 from app.database.connection import session_dependency
 from app.middleware.rate_limit import RateLimitMiddleware
+from app.services.integration import register_integration_handlers
 
 setup_logging()
+register_integration_handlers()
 
 app = FastAPI(
     title="Industrial ERP Simulator",
