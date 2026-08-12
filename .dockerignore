@@ -1,0 +1,33 @@
+# Version control / environment
+.git
+.gitignore
+.env
+.venv
+venv
+
+# Python
+__pycache__
+*.pyc
+*.pyo
+.pytest_cache
+.coverage
+
+# Legacy Vite/React frontend (backend is Python-first)
+node_modules
+src
+public
+dist
+dist-ssr
+index.html
+package.json
+package-lock.json
+tsconfig.json
+tsconfig.app.json
+tsconfig.node.json
+vite.config.ts
+.oxlintrc.json
+
+# Docs & tests (not needed in the runtime image)
+tests
+plano
+*.md

@@ -422,7 +422,22 @@ Evitar tarefas gigantes como "Implementar todo o módulo PP-PI."
 - I-56/I-62: `EventBus.unsubscribe` + teste de falha no handler
 - 228 testes (era 226)
 
-### Próxima: TASK-013 — Docker/deploy (Dockerfile + docker-compose + README)
+### TASK-013 — Docker/deploy
+**Status:** DONE
+- `Dockerfile` — python:3.11-slim, uvicorn, expõe 8000
+- `docker-compose.yml` — `db` (PostgreSQL 16) + `api` (migrações + uvicorn), healthcheck, volume
+- `.dockerignore` — exclui legado Vite/React, docs, tests, .env
+- `README.md` — reescrito (overview, stack, Docker/local, uso, estrutura, disclaimer)
+- 228 testes (era 228 — sem mudança de código Python)
+
+### TASK-013.1 — Correções Pós-Auditoria
+**Status:** DONE
+- M-23: credenciais do compose movidas para env vars (`${...}`)
+- L-38: usuário não-root no Dockerfile · L-39: porta 5432 removida · L-40: SECRET_KEY obrigatório
+- I-64: mem_limit 512m · I-65: seção Environment Variables no README · I-68: nota de produção
+- 228 testes (era 228 — infraestrutura, sem código Python)
+
+### Próxima: TASK-014 — Documentação `docs/` (ARCHITECTURE, BUSINESS_PROCESS, DATA_MODEL, SAP_MAPPING, RUNBOOK)
 
 ---
 

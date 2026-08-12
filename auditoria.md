@@ -2969,3 +2969,243 @@ except Exception:
 - I-57: `inspection_lot` determinístico (ok para demo)
 - I-58: sem logs de erro nos handlers (handlers propagam exceções; service faz rollback + log)
 - I-61: apenas COMPLETED/PARTIAL disparam (comportamento explícito)
+
+---
+
+## Auditoria TASK-013 — Docker/deploy
+
+**Data:** 2026-08-12
+**Revisor:** Auditor de Segurança/Qualidade (pós-implementação)
+**Escopo:** `Dockerfile`, `docker-compose.yml`, `.dockerignore`, `README.md`
+
+### Sumário
+
+| Severidade | Quantidade |
+|-----------|-----------|
+| CRITICAL | 0 |
+| HIGH | 0 |
+| MEDIUM | 1 |
+| LOW | 3 |
+| INFO | 6 |
+
+---
+
+## MEDIUM
+
+### M-23 — Credenciais hardcoded no docker-compose.yml
+
+**Arquivo:** `docker-compose.yml:6-7`
+**Problema:** `POSTGRES_USER` e `POSTGRES_PASSWORD` estão hardcoded (erp/erp) no arquivo docker-compose.yml.
+**Impacto:** credenciais ficam expostas no repositório Git, mesmo que o repositório seja privado.
+**Correção sugerida:** mover credenciais para arquivo `.env` e referenciar no compose:
+```yaml
+environment:
+  POSTGRES_USER: ${POSTGRES_USER}
+  POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+```
+
+**Prioridade:** Média
+
+---
+
+## LOW
+
+### L-38 — Container roda como root
+
+**Arquivo:** `Dockerfile`
+**Problema:** não define USER não-root; container roda como root por padrão.
+**Impacto:** se houver vulnerabilidade no app, atacante ganha privilégios root no container, facilitando escape ou acesso ao sistema host.
+**Correção sugerida:** adicionar usuário não-root no Dockerfile:
+```dockerfile
+RUN useradd --create-home appuser
+USER appuser
+```
+
+**Prioridade:** Baixa
+
+---
+
+### L-39 — Porta 5432 do PostgreSQL exposta ao host
+
+**Arquivo:** `docker-compose.yml:9-10`
+**Problema:** porta do banco mapeada para o host (5432:5432).
+**Impacto:** acesso direto ao DB de fora do container, aumentando superfície de ataque.
+**Correção sugerida:** remover mapeamento de porta (apenas o api precisa acessar internamente via rede Docker):
+```yaml
+db:
+  # remove ports section
+```
+
+**Prioridade:** Baixa
+
+---
+
+### L-40 — SECRET_KEY com fallback inseguro
+
+**Arquivo:** `docker-compose.yml:27`
+**Problema:** usa fallback "change-me-in-production" se não definido.
+**Impacto:** se não definir no .env, usa chave fraca e previsível, comprometendo segurança do JWT.
+**Correção sugerida:** tornar SECRET_KEY obrigatório (remover fallback, falhar se não definido):
+```yaml
+environment:
+  SECRET_KEY: ${SECRET_KEY}  # obrigatório, falha se não definido
+```
+
+**Prioridade:** Baixa
+
+---
+
+## INFO
+
+### I-63 — Não usa multi-stage build
+
+**Arquivo:** `Dockerfile`
+**Observação:** imagem final inclui ferramentas de build e cache do pip.
+**Impacto:** imagem maior que necessário (estimado ~100MB maior).
+**Ação futura:** usar multi-stage build para separar build e runtime.
+
+---
+
+### I-64 — Não há resource limits no docker-compose
+
+**Arquivo:** `docker-compose.yml`
+**Observação:** containers podem consumir recursos ilimitados.
+**Impacto:** em produção, um container pode causar OOM ou consumir CPU ilimitado.
+**Ação futura:** adicionar deploy.resources.limits para CPU e memória.
+
+---
+
+### I-65 — Não documenta variáveis de ambiente no README
+
+**Arquivo:** `README.md`
+**Observação:** usuário precisa procurar no código quais variáveis configurar.
+**Impacto:** experiência do desenvolvedor prejudicada.
+**Ação futura:** adicionar seção "Environment Variables" listando DATABASE_URL, SECRET_KEY, etc.
+
+---
+
+### I-66 — Não há Dockerfile lint (hadolint)
+
+**Arquivo:** CI pipeline
+**Observação:** possíveis más práticas no Dockerfile não detectadas automaticamente.
+**Impacto:** problemas de segurança/performance no Dockerfile podem passar despercebidos.
+**Ação futura:** adicionar hadolint ao pipeline de CI.
+
+---
+
+### I-67 — Não há validação de docker-compose
+
+**Arquivo:** CI pipeline
+**Observação:** erros de sintaxe no docker-compose podem passar despercebidos.
+**Impacto:** falha no deploy por erro de sintaxe.
+**Ação futura:** adicionar `docker-compose config` ao pipeline de CI.
+
+---
+
+### I-68 — Não menciona rate limiting em produção no README
+
+**Arquivo:** `README.md`
+**Observação:** usuário pode não saber que precisa configurar rate limiting para produção.
+**Impacto:** em produção sem rate limiting, API vulnerável a DoS.
+**Ação futura:** adicionar nota sobre configuração de rate limiting para ambientes de produção.
+
+---
+
+## Análise por Categoria
+
+### Segurança de Secrets
+- ✅ .env excluído da imagem (.dockerignore)
+- ⚠️ Credenciais hardcoded no docker-compose.yml (MEDIUM)
+- ⚠️ SECRET_KEY com fallback inseguro (LOW)
+
+### Exposição de Dados
+- ✅ Não expõe .env na imagem
+- ⚠️ Porta 5432 do PostgreSQL exposta ao host (LOW)
+- ✅ Porta 8000 da API exposta (necessário)
+
+### Segurança do Container
+- ⚠️ Container roda como root (LOW)
+- ✅ WORKDIR /app (prática padrão)
+- ✅ Não usa --privileged
+
+### Integridade
+- ✅ pip install --no-cache-dir (seguro)
+- ✅ Usa imagem oficial Python (confiável)
+- ✅ Usa imagem oficial PostgreSQL (confiável)
+
+### Logs
+- ✅ PYTHONUNBUFFERED=1 (logs visíveis em tempo real)
+- ✅ uvicorn loga requests por padrão
+
+### Performance
+- ✅ Imagem slim (menor que full)
+- ✅ pip --no-cache-dir (menor tamanho)
+- ✅ postgres:alpine (menor que postgres:latest)
+- ⚠️ Não usa multi-stage build (INFO)
+
+### Testes
+- ⚠️ Não há testes de Dockerfile (hadolint) (INFO)
+- ⚠️ Não há testes de docker-compose.yml (INFO)
+
+---
+
+## Recomendações Prioritárias
+
+1. **MEDIUM**: Mover credenciais do docker-compose.yml para .env
+2. **LOW**: Definir USER não-root no Dockerfile
+3. **LOW**: Remover mapeamento de porta do PostgreSQL
+4. **LOW**: Tornar SECRET_KEY obrigatório (remover fallback)
+
+---
+
+## Conclusão (Pós-Auditoria TASK-013)
+
+**Estado Geral:** ✅ **BOM** — TASK-013 implementou corretamente a infraestrutura Docker básica. Os arquivos estão bem estruturados e seguem boas práticas gerais.
+
+**Achados:** 0 CRITICAL, 0 HIGH, 1 MEDIUM, 3 LOW, 6 INFO.
+
+**Pronto para Produção:** ⚠️ Parcial — requer correção do MEDIUM (credenciais hardcoded) e LOWs de segurança antes de deploy em produção.
+
+**Segurança:** ✅ Sem vulnerabilidades CRITICAL/HIGH. Achados de segurança são de configuração (credenciais, root user, portas expostas).
+
+**Performance:** ✅ Imagem otimizada (slim, alpine, sem cache). Pode ser melhorada com multi-stage build.
+
+**Risco de Segurança:** ⚠️ Baixo-Médio — credenciais hardcoded e root user são riscos em produção, mas aceitáveis para desenvolvimento local.
+
+**Recomendação Final:** Corrigir M-23 (credenciais hardcoded) e L-38 (root user) antes de deploy em produção. Demais achados são melhorias incrementais.
+
+---
+
+---
+
+## Correções Pós-Auditoria TASK-013
+
+**Data:** 2026-08-12
+**Status:** Corrigido — 1 MEDIUM + 3 LOW + 3 INFO tratados
+**Validação:** `.venv/bin/pytest tests/` → **228 passed** (sem mudança de código Python); YAML do `docker-compose.yml` validado
+
+| Item | Severidade | Status | Correção Aplicada |
+|------|-----------|--------|-------------------|
+| M-23 credenciais hardcoded | MEDIUM | ✅ Corrigido | `POSTGRES_USER/PASSWORD/DB` movidos para env vars (`${...}`), definidos no `.env.example` |
+| L-38 container como root | LOW | ✅ Corrigido | `useradd appuser` + `USER appuser` + `COPY --chown` no Dockerfile |
+| L-39 porta 5432 exposta | LOW | ✅ Corrigido | Removido `ports` do serviço `db` (acesso interno via rede Docker) |
+| L-40 SECRET_KEY fallback inseguro | LOW | ✅ Corrigido | `SECRET_KEY: ${SECRET_KEY}` (obrigatório, sem fallback) |
+| I-64 sem resource limits | INFO | ✅ Corrigido | `mem_limit: 512m` no serviço `api` |
+| I-65 sem documentação de env | INFO | ✅ Corrigido | Seção "Environment Variables" no README |
+| I-68 rate limiting em produção | INFO | ✅ Corrigido | Nota de produção no README (SECRET_KEY, rate limiting, TRUST_PROXY_HEADERS) |
+
+### Arquivos Alterados
+- `Dockerfile` — usuário não-root
+- `docker-compose.yml` — env vars, porta removida, mem_limit
+- `.env.example` — `POSTGRES_*` adicionadas
+- `README.md` — seção env vars + nota de produção
+
+### Revalidação de Segurança
+- Sem credenciais hardcoded no repositório
+- Container roda como usuário não-root (menor superfície de ataque)
+- Banco não exposto ao host
+- SECRET_KEY obrigatório
+
+**Pendências restantes (INFO, "ação futura"):**
+- I-63: multi-stage build (otimização de imagem)
+- I-66/I-67: hadolint + docker-compose config no CI (sem pipeline CI atual)

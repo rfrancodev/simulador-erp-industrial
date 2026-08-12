@@ -4,6 +4,88 @@ This file documents the completion of each task, serving as the source of truth 
 
 ---
 
+## TASK-013.1 — Correções Pós-Auditoria (M-23, L-38, L-39, L-40, I-64, I-65, I-68)
+
+**Status:** DONE
+
+**Data:** 2026-08-12
+
+**IMPLEMENTADO:**
+- **M-23:** credenciais do `db` movidas para env vars (`${POSTGRES_USER/PASSWORD/DB}`), adicionadas ao `.env.example`
+- **L-38:** `useradd appuser` + `USER appuser` + `COPY --chown` no Dockerfile
+- **L-39:** removido `ports` do serviço `db` (sem exposição ao host)
+- **L-40:** `SECRET_KEY: ${SECRET_KEY}` obrigatório (sem fallback)
+- **I-64:** `mem_limit: 512m` no serviço `api`
+- **I-65/I-68:** seção "Environment Variables" + nota de produção (rate limiting, TRUST_PROXY_HEADERS) no README
+
+**ARQUIVOS ALTERADOS:**
+- `Dockerfile`, `docker-compose.yml`, `.env.example`, `README.md`
+
+**TESTES:**
+```
+228 passed in 19.92s
+```
+- `pytest` OK · `typecheck` OK · `lint` OK · YAML do compose validado
+
+**SECURITY AUDIT:**
+- 0 CRITICAL/HIGH/MEDIUM/LOW restantes
+- Pendências INFO (I-63 multi-stage, I-66/I-67 CI): documentadas como "ação futura"
+
+**PRÓXIMA TAREFA:**
+TASK-014 — Documentação `docs/` (ARCHITECTURE, BUSINESS_PROCESS, DATA_MODEL, SAP_MAPPING, RUNBOOK)
+
+---
+
+## TASK-013 — Docker/deploy
+
+**Status:** DONE
+
+**Data:** 2026-08-12
+
+**IMPLEMENTADO:**
+- `Dockerfile` — `python:3.11-slim`, instala `requirements.txt`, `uvicorn app.main:app` na porta 8000
+- `docker-compose.yml` — `db` (PostgreSQL 16-alpine, healthcheck `pg_isready`, volume persistente) + `api` (build, `depends_on` com `service_healthy`, `alembic upgrade head && uvicorn`)
+- `.dockerignore` — exclui `.venv`, `node_modules`, legado Vite/React (`src/`, `public/`, `dist/`, `package*.json`, `tsconfig*`, `vite.config.ts`), docs, tests, `.env`
+- `README.md` — reescrito: overview dos módulos PP-PI/QM/CO, disclaimer sintético/"inspired by SAP", features, stack, Docker/local quick start, uso (auth/RBAC/API/dashboard/simulação), testes, estrutura, docs
+
+**ARQUIVOS CRIADOS:**
+- `Dockerfile`, `docker-compose.yml`, `.dockerignore`
+- `README.md` (substituiu o README legado do template Vite)
+
+**DOCUMENTOS CONSULTADOS:**
+- `plano/02-arquitetura-infraestrutura.md` — Docker, PostgreSQL central, Cloudflare
+- `plano/12-estrutura-repositorio.md` — Dockerfile/compose/README na raiz
+
+**TESTES:**
+```
+228 passed in 19.94s
+```
+- `.venv/bin/pytest tests/` → **228 passed** (sem mudança de código Python)
+- `npm run typecheck` → OK
+- `npm run lint` → OK
+- YAML do `docker-compose.yml` validado (parse `yaml.safe_load`)
+
+**AUTO REVIEW:**
+- `python:3.11-slim` compatível com `psycopg2-binary` (glibc)
+- Compose segue `plano/02`: DB local só para dev; produção reusa PostgreSQL central via `DATABASE_URL`
+- Seed (admin + dados) manual via `docker compose exec` — sem senha default hardcoded
+- `.dockerignore` mantém a imagem enxuta (sem legado React/tests/docs)
+
+**SECURITY AUDIT:**
+- Credenciais do DB local (`erp:erp`) são para desenvolvimento — documentado; produção usa PostgreSQL central com credenciais via env
+- `SECRET_KEY` via env com fallback placeholder (documentado)
+- `.env` excluído da imagem (`.dockerignore`)
+- Senha do admin nunca hardcoded no compose (seed manual)
+
+**PENDÊNCIAS:**
+- `docs/` (ARCHITECTURE, BUSINESS_PROCESS, DATA_MODEL, SAP_MAPPING, RUNBOOK) — TASK-014
+- `.env.example` com `DATABASE_URL` apontando para localhost (dev)
+
+**PRÓXIMA TAREFA:**
+TASK-014 — Documentação `docs/` (ARCHITECTURE, BUSINESS_PROCESS, DATA_MODEL, SAP_MAPPING, RUNBOOK)
+
+---
+
 ## TASK-012.1 — Correções Pós-Auditoria (M-22, L-35, L-36, L-37, I-56, I-62)
 
 **Status:** DONE
