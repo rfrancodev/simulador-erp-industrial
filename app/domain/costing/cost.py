@@ -30,6 +30,7 @@ class CostRecord(CostRecordBase):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
+    planned_total_cost: Decimal
     actual_material_cost: Optional[Decimal] = None
     actual_labor_cost: Optional[Decimal] = None
     actual_machine_cost: Optional[Decimal] = None

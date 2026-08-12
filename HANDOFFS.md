@@ -4,6 +4,98 @@ This file documents the completion of each task, serving as the source of truth 
 
 ---
 
+## TASK-007 — CO Service + CostRecord API + Recipes CRUD + Paginação Padronizada
+
+**Status:** DONE
+
+**Data:** 2026-08-12
+
+**IMPLEMENTADO:**
+- `app/services/costing_service.py` — `CostingService` cobrindo o domínio CO
+  - Criar CostRecord (valida ProductionOrder existe), listar, buscar por id/ordem
+  - Atualizar custos reais (`update_actual_costs`)
+  - `get_summary` → `CostSummary` (planned_total, actual_total, variance, variance_percent)
+  - Transaction boundary (M-05): commit em sucesso, rollback em erro; `IntegrityError` → `DuplicateEntityError`
+- `app/api/costing.py` — Router FastAPI com 6 endpoints para CO
+  - `POST /api/costing/records` — criar custo por ordem
+  - `GET /api/costing/records` — listar com paginação (envelope)
+  - `GET /api/costing/records/{id}` / `GET /api/costing/records/order/{order_id}`
+  - `PUT /api/costing/records/{id}/actual` — atualizar custos reais
+  - `GET /api/costing/records/{id}/summary` — resumo com variance
+- `app/api/production.py` — **Recipes CRUD (H-02)** + paginação em todos os list endpoints
+  - `POST /api/production/recipes` — cria receita com BOM (components) e roteiro (operations)
+  - `PUT /api/production/recipes/{id}` — atualiza campos + substitui BOM/roteiro
+  - `DELETE /api/production/recipes/{id}` — bloqueia se houver ProductionOrder (409)
+  - Validação M-11/L-05: `component.unit` deve ser igual ao `base_unit` do material → `ComponentUnitMismatchError` (422)
+- `app/domain/common.py` — `PaginatedResponse[T]` genérico (M-13); `MaterialList` removido
+- **Paginação padrão (M-13):** todos os endpoints de listagem retornam `{items, total, page, page_size}`
+  - PP-PI: materials, orders, orders/status, batches/order, resources, resources/work-center, recipes, recipes/material
+  - QM: inspections, non-conformities · CO: records
+  - Count helpers adicionados: `count_by_status`, `count_by_order`, `count_by_work_center`, `count_active_for_material`, `count_by_inspection`
+- **L-13:** `ProductionRecipe` relacionamento em `ProductionOrder` + `joinedload(recipe)` em `get_with_material`; schema `ProductionOrder` agora expõe `recipe`
+- `app/domain/entities.py` — `cascade="all, delete-orphan"` em `ProductionRecipe.components/operations` (permite substituir BOM no update e deletar receita limpa)
+- `app/domain/costing/cost.py` — `planned_total_cost` adicionado ao schema de saída `CostRecord`
+- `app/main.py` — router CO montado + handler `ComponentUnitMismatchError` → 422
+
+**ARQUIVOS CRIADOS:**
+- `app/domain/common.py`
+- `app/services/costing_service.py`
+- `app/api/costing.py`
+- `tests/unit/test_api_costing.py` (15 testes)
+- `tests/unit/test_recipes_crud.py` (15 testes)
+
+**ARQUIVOS ALTERADOS:**
+- `app/api/production.py` — envelopes de paginação + recipes CRUD
+- `app/api/quality.py` — envelopes de paginação
+- `app/domain/costing/cost.py`, `app/domain/entities.py`, `app/domain/production/material.py`, `app/domain/production/recipe.py`
+- `app/core/exceptions.py` — `ComponentUnitMismatchError`
+- `app/repositories/production_repository.py`, `app/repositories/quality_repository.py`
+- `app/services/__init__.py`, `app/services/production_service.py`
+- `app/main.py`
+- `tests/unit/test_api_production.py`, `tests/unit/test_api_quality.py` (asserts de envelope)
+
+**DOCUMENTOS CONSULTADOS:**
+- `plano/07-dominio-co.md` — estruturas Planned/Actual/Variance, indicadores CO
+- `plano/04-arquitetura-software.md` — routers `app/api/costing.py`, service layer
+- `plano/05-dominio-pp-pi.md` (referência recipes) via auditoria
+- `auditoria.md` — H-02, M-13, L-12, L-13 (item 6 Recomendações Prioritárias)
+- `TASKS.md` — ciclo Task → Test → Auto Review → Security Audit → Handoff
+
+**TESTES:**
+```
+============================= 143 passed in 4.83s ==============================
+```
+- `.venv/bin/python -m compileall app/` → OK
+- `.venv/bin/python -m pytest tests/` → **143 passed** (era 113)
+- `npm run typecheck` → OK
+- `npm run lint` → OK
+
+**AUTO REVIEW:**
+- Padrão idêntico a TASK-005/006: service layer com transaction boundary + thin API
+- Paginação (M-13) padronizada com `PaginatedResponse[T]` genérico — sem duplicação por entidade
+- Recipes CRUD (H-02) completos incluindo BOM/roteiro; consistência de unidade validada (M-11/L-05)
+- Recipe deletável somente sem dependências de ProductionOrder (409)
+- `CostRecord` mantém CHECK constraints (H-02 da auditoria original) — totais nunca divergem
+- Sem refatorações fora do escopo; sem novas dependências
+
+**SECURITY AUDIT:**
+- Inputs validados via Pydantic (Decimal `ge=0`, `decimal_places`, enums, `gt=0`)
+- SQL via ORM parametrizado (sem SQL injection)
+- `ComponentUnitMismatchError` → 422; `EntityHasDependenciesError` → 409; `EntityNotFoundError` → 404
+- Erros de domínio traduzidos sem expor stack traces
+- Sem secrets/tokens/credenciais; `.env` não alterado
+- Logs sem dados sensíveis (recipe_code, order_id, record id)
+
+**PENDÊNCIAS:**
+- TASK-008: Dashboard API (KPIs agregados) — inclui M-09 (rollback automático), M-12 (`?active=all`), L-09/L-10 (índices), I-21 (`/health` com check de DB)
+- TASK-009: Autenticação (H-01), máquinas de estado (M-14/M-15), rate limiting (M-16), cascade delete (L-14)
+- Opt-out assumido: `list_materials` mantém filtro ativo; M-12 deixará `active=all` para TASK-008
+
+**PRÓXIMA TAREFA:**
+TASK-008 — Dashboard API (KPIs agregados de PP-PI, QM e CO)
+
+---
+
 ## TASK-006 — QM Service + REST API Endpoints
 
 **Status:** DONE

@@ -9,10 +9,12 @@ from __future__ import annotations
 
 from logging import getLogger
 
+from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.exceptions import (
+    ComponentUnitMismatchError,
     DuplicateEntityError,
     EntityHasDependenciesError,
     EntityNotFoundError,
@@ -24,10 +26,17 @@ from app.domain.entities import (
     ProductionOrder,
     ProductionRecipe,
     ProductionResource,
+    RecipeComponent,
+    RecipeOperation,
 )
 from app.domain.production.batch import BatchCreate, ProductionResourceCreate
 from app.domain.production.material import MaterialCreate, MaterialUpdate
-from app.domain.production.recipe import ProductionOrderCreate, ProductionOrderStatus
+from app.domain.production.recipe import (
+    ProductionOrderCreate,
+    ProductionOrderStatus,
+    ProductionRecipeCreate,
+    ProductionRecipeUpdate,
+)
 from app.repositories.production_repository import (
     BatchRepository,
     MaterialRepository,
@@ -229,3 +238,123 @@ class ProductionService:
 
     def list_active_recipes_for_material(self, material_id: int) -> list[ProductionRecipe]:
         return self.recipes.get_active_for_material(material_id)
+
+    def _validate_component(
+        self, material_id: int, unit: str
+    ) -> None:
+        """Validate a BOM component against the referenced material (M-11/L-05)."""
+        component_material = self.materials.get_by_id(material_id)
+        if component_material is None:
+            raise EntityNotFoundError("Material", material_id)
+        if unit != component_material.base_unit:
+            raise ComponentUnitMismatchError(material_id, unit, component_material.base_unit)
+
+    def _recipe_with_bom(
+        self, recipe: ProductionRecipe, data: ProductionRecipeCreate
+    ) -> ProductionRecipe:
+        for component in data.components:
+            self._validate_component(component.component_material_id, component.unit)
+            recipe.components.append(
+                RecipeComponent(
+                    component_material_id=component.component_material_id,
+                    quantity=component.quantity,
+                    unit=component.unit,
+                )
+            )
+        for operation in data.operations:
+            recipe.operations.append(
+                RecipeOperation(
+                    sequence=operation.sequence,
+                    work_center=operation.work_center,
+                    operation_description=operation.operation_description,
+                    standard_time_minutes=operation.standard_time_minutes,
+                )
+            )
+        return recipe
+
+    def create_recipe(self, data: ProductionRecipeCreate) -> ProductionRecipe:
+        material = self.materials.get_by_id(data.material_id)
+        if material is None or not material.is_active:
+            raise EntityNotFoundError("Material", data.material_id)
+
+        recipe = ProductionRecipe(
+            recipe_code=data.recipe_code,
+            material_id=data.material_id,
+            version=data.version,
+        )
+        self._recipe_with_bom(recipe, data)
+        try:
+            created = self.recipes.add(recipe)
+            self._session.commit()
+            logger.info("Production recipe %s created", created.recipe_code)
+            return created
+        except IntegrityError:
+            self._session.rollback()
+            raise DuplicateEntityError("ProductionRecipe", data.recipe_code) from None
+
+    def update_recipe(
+        self, id: int, data: ProductionRecipeUpdate
+    ) -> ProductionRecipe:
+        recipe = self.recipes.get_by_id(id)
+        if recipe is None:
+            raise EntityNotFoundError("ProductionRecipe", id)
+
+        update_data = data.model_dump(exclude_unset=True, mode="python")
+
+        if "material_id" in update_data and update_data["material_id"] is not None:
+            material = self.materials.get_by_id(update_data["material_id"])
+            if material is None or not material.is_active:
+                raise EntityNotFoundError("Material", update_data["material_id"])
+
+        if data.components is not None:
+            recipe.components = []
+            for component in data.components:
+                self._validate_component(component.component_material_id, component.unit)
+                recipe.components.append(
+                    RecipeComponent(
+                        component_material_id=component.component_material_id,
+                        quantity=component.quantity,
+                        unit=component.unit,
+                    )
+                )
+
+        if data.operations is not None:
+            recipe.operations = []
+            for operation in data.operations:
+                recipe.operations.append(
+                    RecipeOperation(
+                        sequence=operation.sequence,
+                        work_center=operation.work_center,
+                        operation_description=operation.operation_description,
+                        standard_time_minutes=operation.standard_time_minutes,
+                    )
+                )
+
+        for key, value in update_data.items():
+            if key in ("components", "operations"):
+                continue
+            setattr(recipe, key, value)
+
+        self._session.commit()
+        logger.info("Production recipe %s updated", recipe.recipe_code)
+        return recipe
+
+    def delete_recipe(self, id: int) -> None:
+        recipe = self.recipes.get_by_id(id)
+        if recipe is None:
+            raise EntityNotFoundError("ProductionRecipe", id)
+
+        stmt = (
+            select(ProductionOrder.id)
+            .where(ProductionOrder.recipe_id == id)
+            .limit(1)
+        )
+        if self._session.execute(stmt).scalar_one_or_none() is not None:
+            raise EntityHasDependenciesError(
+                "ProductionRecipe", recipe.recipe_code, ["production_orders"]
+            )
+
+        self._session.delete(recipe)
+        self._session.flush()
+        self._session.commit()
+        logger.info("Production recipe %s deleted", recipe.recipe_code)

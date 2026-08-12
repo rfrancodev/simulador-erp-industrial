@@ -1,35 +1,51 @@
 """REST API router for PP-PI — Production domain."""
 
+from typing import TypeVar
+
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
 from app.database.connection import session_dependency
+from app.domain.common import PaginatedResponse
 from app.domain.production.batch import Batch, BatchCreate, ProductionResource, ProductionResourceCreate
-from app.domain.production.material import Material, MaterialCreate, MaterialList, MaterialUpdate
-from app.domain.production.recipe import ProductionOrder, ProductionOrderCreate, ProductionRecipe
+from app.domain.production.material import Material, MaterialCreate, MaterialUpdate
+from app.domain.production.recipe import (
+    ProductionOrder,
+    ProductionOrderCreate,
+    ProductionRecipe,
+    ProductionRecipeCreate,
+    ProductionRecipeUpdate,
+)
 from app.services.production_service import ProductionService
 
 router = APIRouter(prefix="/api/production", tags=["PP-PI"])
+
+T = TypeVar("T")
 
 
 def _svc(session: Session = Depends(session_dependency)) -> ProductionService:
     return ProductionService(session)
 
 
+def _paginate(items: list[T], total: int, skip: int, limit: int) -> PaginatedResponse[T]:
+    return PaginatedResponse(
+        items=items,
+        total=total,
+        page=skip // limit + 1 if limit > 0 else 1,
+        page_size=limit,
+    )
+
+
 # ── Materials ────────────────────────────────────────────────────────────
 
-@router.get("/materials", response_model=MaterialList)
+@router.get("/materials", response_model=PaginatedResponse[Material])
 def list_materials(
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=500),
     svc: ProductionService = Depends(_svc),
 ):
-    items = svc.list_materials(skip, limit)
-    return MaterialList(
-        items=items,
-        total=svc.materials.count_active(),
-        page=skip // limit + 1 if limit > 0 else 1,
-        page_size=limit,
+    return _paginate(
+        svc.list_materials(skip, limit), svc.materials.count_active(), skip, limit
     )
 
 
@@ -55,13 +71,15 @@ def delete_material(id: int, svc: ProductionService = Depends(_svc)):
 
 # ── Production Orders ────────────────────────────────────────────────────
 
-@router.get("/orders", response_model=list[ProductionOrder])
+@router.get("/orders", response_model=PaginatedResponse[ProductionOrder])
 def list_orders(
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=500),
     svc: ProductionService = Depends(_svc),
 ):
-    return svc.list_orders(skip, limit)
+    return _paginate(
+        svc.list_orders(skip, limit), svc.orders.count(), skip, limit
+    )
 
 
 @router.get("/orders/{id}", response_model=ProductionOrder)
@@ -74,14 +92,19 @@ def get_order_by_number(order_number: str, svc: ProductionService = Depends(_svc
     return svc.get_order_by_number(order_number)
 
 
-@router.get("/orders/status/{status}", response_model=list[ProductionOrder])
+@router.get("/orders/status/{status}", response_model=PaginatedResponse[ProductionOrder])
 def list_orders_by_status(
     status: str,
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=500),
     svc: ProductionService = Depends(_svc),
 ):
-    return svc.list_orders_by_status(status, skip, limit)
+    return _paginate(
+        svc.list_orders_by_status(status, skip, limit),
+        svc.orders.count_by_status(status),
+        skip,
+        limit,
+    )
 
 
 @router.post("/orders", response_model=ProductionOrder, status_code=201)
@@ -91,9 +114,19 @@ def create_production_order(data: ProductionOrderCreate, svc: ProductionService 
 
 # ── Batches ──────────────────────────────────────────────────────────────
 
-@router.get("/batches/order/{order_id}", response_model=list[Batch])
-def list_batches_by_order(order_id: int, svc: ProductionService = Depends(_svc)):
-    return svc.list_batches_by_order(order_id)
+@router.get("/batches/order/{order_id}", response_model=PaginatedResponse[Batch])
+def list_batches_by_order(
+    order_id: int,
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=500),
+    svc: ProductionService = Depends(_svc),
+):
+    return _paginate(
+        svc.list_batches_by_order(order_id),
+        svc.batches.count_by_order(order_id),
+        skip,
+        limit,
+    )
 
 
 @router.get("/batches/number/{batch_number}", response_model=Batch)
@@ -108,13 +141,15 @@ def create_batch(data: BatchCreate, svc: ProductionService = Depends(_svc)):
 
 # ── Production Resources ─────────────────────────────────────────────────
 
-@router.get("/resources", response_model=list[ProductionResource])
+@router.get("/resources", response_model=PaginatedResponse[ProductionResource])
 def list_resources(
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=500),
     svc: ProductionService = Depends(_svc),
 ):
-    return svc.list_resources(skip, limit)
+    return _paginate(
+        svc.list_resources(skip, limit), svc.resources.count(), skip, limit
+    )
 
 
 @router.get("/resources/{id}", response_model=ProductionResource)
@@ -127,9 +162,19 @@ def get_resource_by_code(code: str, svc: ProductionService = Depends(_svc)):
     return svc.get_resource_by_code(code)
 
 
-@router.get("/resources/work-center/{work_center}", response_model=list[ProductionResource])
-def list_resources_by_work_center(work_center: str, svc: ProductionService = Depends(_svc)):
-    return svc.list_resources_by_work_center(work_center)
+@router.get("/resources/work-center/{work_center}", response_model=PaginatedResponse[ProductionResource])
+def list_resources_by_work_center(
+    work_center: str,
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=500),
+    svc: ProductionService = Depends(_svc),
+):
+    return _paginate(
+        svc.list_resources_by_work_center(work_center),
+        svc.resources.count_by_work_center(work_center),
+        skip,
+        limit,
+    )
 
 
 @router.post("/resources", response_model=ProductionResource, status_code=201)
@@ -139,13 +184,15 @@ def create_resource(data: ProductionResourceCreate, svc: ProductionService = Dep
 
 # ── Production Recipes ───────────────────────────────────────────────────
 
-@router.get("/recipes", response_model=list[ProductionRecipe])
+@router.get("/recipes", response_model=PaginatedResponse[ProductionRecipe])
 def list_recipes(
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=500),
     svc: ProductionService = Depends(_svc),
 ):
-    return svc.list_recipes(skip, limit)
+    return _paginate(
+        svc.list_recipes(skip, limit), svc.recipes.count(), skip, limit
+    )
 
 
 @router.get("/recipes/{id}", response_model=ProductionRecipe)
@@ -158,6 +205,33 @@ def get_recipe_by_code(code: str, svc: ProductionService = Depends(_svc)):
     return svc.get_recipe_by_code(code)
 
 
-@router.get("/recipes/material/{material_id}", response_model=list[ProductionRecipe])
-def list_active_recipes_for_material(material_id: int, svc: ProductionService = Depends(_svc)):
-    return svc.list_active_recipes_for_material(material_id)
+@router.get("/recipes/material/{material_id}", response_model=PaginatedResponse[ProductionRecipe])
+def list_active_recipes_for_material(
+    material_id: int,
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=500),
+    svc: ProductionService = Depends(_svc),
+):
+    return _paginate(
+        svc.list_active_recipes_for_material(material_id),
+        svc.recipes.count_active_for_material(material_id),
+        skip,
+        limit,
+    )
+
+
+@router.post("/recipes", response_model=ProductionRecipe, status_code=201)
+def create_recipe(data: ProductionRecipeCreate, svc: ProductionService = Depends(_svc)):
+    return svc.create_recipe(data)
+
+
+@router.put("/recipes/{id}", response_model=ProductionRecipe)
+def update_recipe(
+    id: int, data: ProductionRecipeUpdate, svc: ProductionService = Depends(_svc)
+):
+    return svc.update_recipe(id, data)
+
+
+@router.delete("/recipes/{id}", status_code=204)
+def delete_recipe(id: int, svc: ProductionService = Depends(_svc)):
+    svc.delete_recipe(id)

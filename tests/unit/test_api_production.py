@@ -214,7 +214,8 @@ class TestProductionOrdersApi:
         })
         resp = client.get("/api/production/orders")
         assert resp.status_code == 200
-        assert len(resp.json()) == 1
+        assert resp.json()["total"] == 1
+        assert len(resp.json()["items"]) == 1
 
     def test_get_order_by_number(self, client: TestClient):
         now = datetime.now(UTC)
@@ -250,11 +251,12 @@ class TestProductionOrdersApi:
         })
         resp = client.get("/api/production/orders/status/CREATED")
         assert resp.status_code == 200
-        assert len(resp.json()) == 1
+        assert resp.json()["total"] == 1
+        assert len(resp.json()["items"]) == 1
 
         resp_empty = client.get("/api/production/orders/status/CLOSED")
         assert resp.status_code == 200
-        assert len(resp_empty.json()) == 0
+        assert resp_empty.json()["total"] == 0
 
 
 # ── Batches ──────────────────────────────────────────────────────────────────
@@ -321,7 +323,8 @@ class TestBatchesApi:
         })
         resp = client.get("/api/production/batches/order/1")
         assert resp.status_code == 200
-        assert len(resp.json()) == 1
+        assert resp.json()["total"] == 1
+        assert len(resp.json()["items"]) == 1
 
     def test_get_batch_by_number(self, client: TestClient):
         client.post("/api/production/batches", json={
@@ -368,7 +371,8 @@ class TestResourcesApi:
             })
         resp = client.get("/api/production/resources")
         assert resp.status_code == 200
-        assert len(resp.json()) == 3
+        assert resp.json()["total"] == 3
+        assert len(resp.json()["items"]) == 3
 
     def test_get_resource(self, client: TestClient):
         client.post("/api/production/resources", json={
@@ -412,7 +416,8 @@ class TestResourcesApi:
         })
         resp = client.get("/api/production/resources/work-center/WC-001")
         assert resp.status_code == 200
-        assert len(resp.json()) == 2
+        assert resp.json()["total"] == 2
+        assert len(resp.json()["items"]) == 2
 
 
 # ── Recipes ──────────────────────────────────────────────────────────────────
@@ -434,7 +439,8 @@ class TestRecipesApi:
     def test_list_recipes(self, client: TestClient):
         resp = client.get("/api/production/recipes")
         assert resp.status_code == 200
-        assert len(resp.json()) == 1
+        assert resp.json()["total"] == 1
+        assert len(resp.json()["items"]) == 1
 
     def test_get_recipe_by_code(self, client: TestClient):
         resp = client.get("/api/production/recipes/code/REC-API-01")

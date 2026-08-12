@@ -114,7 +114,8 @@ class TestInspectionsApi:
         client.post("/api/quality/inspections", json={"batch_id": 1, "inspection_lot": "QI-LIST"})
         resp = client.get("/api/quality/inspections")
         assert resp.status_code == 200
-        assert len(resp.json()) == 1
+        assert resp.json()["total"] == 1
+        assert len(resp.json()["items"]) == 1
 
     def test_get_inspection(self, client: TestClient, _setup_batch):
         client.post("/api/quality/inspections", json={"batch_id": 1, "inspection_lot": "QI-GET"})
@@ -246,10 +247,12 @@ class TestNonConformitiesApi:
         })
         resp = client.get("/api/quality/inspections/1/non-conformities")
         assert resp.status_code == 200
-        assert len(resp.json()) == 2
+        assert resp.json()["total"] == 2
+        assert len(resp.json()["items"]) == 2
 
     def test_list_non_conformities_empty(self, client: TestClient, _setup_batch):
         client.post("/api/quality/inspections", json={"batch_id": 1, "inspection_lot": "QI-NCE"})
         resp = client.get("/api/quality/inspections/1/non-conformities")
         assert resp.status_code == 200
-        assert len(resp.json()) == 0
+        assert resp.json()["total"] == 0
+        assert len(resp.json()["items"]) == 0

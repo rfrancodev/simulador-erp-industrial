@@ -18,16 +18,6 @@ class ProductionOrderStatus(str, Enum):
     PARTIAL = "PARTIAL"
 
 
-class ProductionRecipeBase(BaseModel):
-    recipe_code: str = Field(..., min_length=1, max_length=18)
-    material_id: int = Field(..., gt=0)
-    version: str = Field(default="1.0", max_length=10)
-
-
-class ProductionRecipeCreate(ProductionRecipeBase):
-    pass
-
-
 class RecipeComponentBase(BaseModel):
     component_material_id: int = Field(..., gt=0)
     quantity: Decimal = Field(..., gt=0, decimal_places=3)
@@ -39,6 +29,26 @@ class RecipeOperationBase(BaseModel):
     work_center: str = Field(..., max_length=8)
     operation_description: str = Field(..., max_length=200)
     standard_time_minutes: int = Field(..., ge=1)
+
+
+class ProductionRecipeBase(BaseModel):
+    recipe_code: str = Field(..., min_length=1, max_length=18)
+    material_id: int = Field(..., gt=0)
+    version: str = Field(default="1.0", max_length=10)
+
+
+class ProductionRecipeCreate(ProductionRecipeBase):
+    components: list[RecipeComponentBase] = []
+    operations: list[RecipeOperationBase] = []
+
+
+class ProductionRecipeUpdate(BaseModel):
+    recipe_code: Optional[str] = Field(None, min_length=1, max_length=18)
+    material_id: Optional[int] = Field(None, gt=0)
+    version: Optional[str] = Field(None, max_length=10)
+    is_active: Optional[bool] = None
+    components: Optional[list[RecipeComponentBase]] = None
+    operations: Optional[list[RecipeOperationBase]] = None
 
 
 class ProductionRecipe(ProductionRecipeBase):
@@ -78,4 +88,5 @@ class ProductionOrder(ProductionOrderBase):
     actual_quantity: Optional[Decimal] = None
     actual_start: Optional[datetime] = None
     actual_end: Optional[datetime] = None
+    recipe: Optional[ProductionRecipe] = None
     created_at: datetime

@@ -91,7 +91,10 @@ class ProductionOrderRepository(BaseRepository[ProductionOrder]):
     def get_with_material(self, id: int) -> ProductionOrder | None:
         stmt = (
             select(ProductionOrder)
-            .options(joinedload(ProductionOrder.material))
+            .options(
+                joinedload(ProductionOrder.material),
+                joinedload(ProductionOrder.recipe),
+            )
             .where(ProductionOrder.id == id)
         )
         return self._session.execute(stmt).unique().scalar_one_or_none()
@@ -105,6 +108,10 @@ class ProductionOrderRepository(BaseRepository[ProductionOrder]):
         )
         return list(self._session.execute(stmt).scalars().all())
 
+    def count_by_status(self, status: str) -> int:
+        stmt = select(func.count()).select_from(ProductionOrder).where(ProductionOrder.status == status)
+        return self._session.scalar(stmt) or 0
+
 
 class BatchRepository(BaseRepository[Batch]):
     def __init__(self, session: Session):
@@ -117,6 +124,14 @@ class BatchRepository(BaseRepository[Batch]):
     def get_by_order(self, order_id: int) -> list[Batch]:
         stmt = select(Batch).where(Batch.production_order_id == order_id)
         return list(self._session.execute(stmt).scalars().all())
+
+    def count_by_order(self, order_id: int) -> int:
+        stmt = (
+            select(func.count())
+            .select_from(Batch)
+            .where(Batch.production_order_id == order_id)
+        )
+        return self._session.scalar(stmt) or 0
 
 
 class ProductionRecipeRepository(BaseRepository[ProductionRecipe]):
@@ -134,6 +149,14 @@ class ProductionRecipeRepository(BaseRepository[ProductionRecipe]):
         )
         return list(self._session.execute(stmt).scalars().all())
 
+    def count_active_for_material(self, material_id: int) -> int:
+        stmt = (
+            select(func.count())
+            .select_from(ProductionRecipe)
+            .where(ProductionRecipe.material_id == material_id, ProductionRecipe.is_active == True)
+        )
+        return self._session.scalar(stmt) or 0
+
 
 class ProductionResourceRepository(BaseRepository[ProductionResource]):
     def __init__(self, session: Session):
@@ -146,3 +169,11 @@ class ProductionResourceRepository(BaseRepository[ProductionResource]):
     def get_by_work_center(self, work_center: str) -> list[ProductionResource]:
         stmt = select(ProductionResource).where(ProductionResource.work_center == work_center)
         return list(self._session.execute(stmt).scalars().all())
+
+    def count_by_work_center(self, work_center: str) -> int:
+        stmt = (
+            select(func.count())
+            .select_from(ProductionResource)
+            .where(ProductionResource.work_center == work_center)
+        )
+        return self._session.scalar(stmt) or 0

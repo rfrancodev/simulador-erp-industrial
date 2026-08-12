@@ -74,8 +74,12 @@ class ProductionRecipe(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, server_default=func.now())
 
     material: Mapped["Material"] = relationship(back_populates="recipes")
-    components: Mapped[list["RecipeComponent"]] = relationship(back_populates="recipe")
-    operations: Mapped[list["RecipeOperation"]] = relationship(back_populates="recipe")
+    components: Mapped[list["RecipeComponent"]] = relationship(
+        back_populates="recipe", cascade="all, delete-orphan"
+    )
+    operations: Mapped[list["RecipeOperation"]] = relationship(
+        back_populates="recipe", cascade="all, delete-orphan"
+    )
 
 
 class RecipeComponent(Base):
@@ -125,6 +129,7 @@ class ProductionOrder(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, server_default=func.now())
 
     material: Mapped["Material"] = relationship(back_populates="production_orders")
+    recipe: Mapped["ProductionRecipe"] = relationship()
     batches: Mapped[list["Batch"]] = relationship(back_populates="production_order")
     cost_record: Mapped[Optional["CostRecord"]] = relationship(back_populates="production_order", uselist=False)
 

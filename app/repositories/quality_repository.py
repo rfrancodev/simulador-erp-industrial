@@ -2,7 +2,7 @@
 
 from logging import getLogger
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session, joinedload
 
 from app.domain.entities import NonConformity, QualityInspection
@@ -82,6 +82,14 @@ class NonConformityRepository(BaseRepository[NonConformity]):
     def get_by_inspection(self, inspection_id: int) -> list[NonConformity]:
         stmt = select(NonConformity).where(NonConformity.inspection_id == inspection_id)
         return list(self._session.execute(stmt).scalars().all())
+
+    def count_by_inspection(self, inspection_id: int) -> int:
+        stmt = (
+            select(func.count())
+            .select_from(NonConformity)
+            .where(NonConformity.inspection_id == inspection_id)
+        )
+        return self._session.scalar(stmt) or 0
 
     def create(self, inspection_id: int, data: NonConformityCreate) -> NonConformity:
         nc = NonConformity(

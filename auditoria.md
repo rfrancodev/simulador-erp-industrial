@@ -1043,6 +1043,181 @@ Usar fixtures que criam dados isolados ou capturar IDs dinamicamente.
 
 ---
 
+## Auditoria TASK-007 — CO Service + Recipes API + Paginação
+
+**Data:** 2026-08-12
+**Revisor:** Auditor de Segurança/Qualidade (pós-implementação)
+**Escopo:** TASK-007 — `CostingService`, API CO, Recipes CRUD, paginação padronizada (M-13), `get_with_material` com recipe (L-13).
+
+### Sumário
+
+| Severidade | Quantidade |
+|-----------|-----------|
+| CRITICAL | 0 |
+| HIGH | 0 |
+| MEDIUM | 2 |
+| LOW | 3 |
+| INFO | 2 |
+
+---
+
+### Itens Anteriores Resolvidos na TASK-007
+
+| Item | Severidade | Status | Correção Aplicada |
+|------|-----------|--------|-------------------|
+| H-02 (2ª auditoria) Recipes sem API CRUD | HIGH | ✅ Corrigido | `POST/PUT/DELETE /api/production/recipes` com BOM (components) e roteiro (operations); validação de material ativo e dependências |
+| M-11 (2ª auditoria) Unit inconsistency RecipeComponent | MEDIUM | ✅ Corrigido | `ComponentUnitMismatchError` valida `component.unit == material.base_unit` em create e update de recipe |
+| M-13 Paginação inconsistente | MEDIUM | ⚠️ Parcialmente | Envelope `PaginatedResponse[T]` genérico criado e aplicado em todos endpoints top-level. **Porém sub-endpoints não paginam de fato** — ver novo **M-17** |
+| L-05 `RecipeComponent.unit` | LOW | ✅ Corrigido | Validação de consistência de unidade via `ComponentUnitMismatchError` (422) |
+| L-12 Ausência de API para `CostRecord` (CO) | LOW | ✅ Corrigido | `app/api/costing.py` + `app/services/costing_service.py` com 6 endpoints (create, list, get, get_by_order, update_actual, summary) |
+| L-13 `get_with_material()` não carregava Recipe | LOW | ✅ Corrigido | Novo relationship `ProductionOrder.recipe`; `joinedload(ProductionOrder.recipe)` em `get_with_material()`; schema `ProductionOrder` expõe `recipe` |
+| L-14 Ausência de Cascade Delete | LOW | ⚠️ Parcialmente | `ProductionRecipe.components/operations` agora têm `cascade="all, delete-orphan"`. **`ProductionOrder→Batches` permanece sem cascade** — reservado para TASK-009 |
+
+---
+
+### MEDIUM (novos achados TASK-007)
+
+#### M-17 — Paginação incompleta em sub-endpoints (envelope engana)
+
+**Arquivo:** `app/api/production.py:117-129, 165-177, 208-220`, `app/api/quality.py:73-85`
+**Problema:** Endpoints que filtram por pai (`/batches/order/{order_id}`, `/resources/work-center/{work_center}`, `/recipes/material/{material_id}`, `/inspections/{id}/non-conformities`) retornam envelope `PaginatedResponse` com `page`/`page_size`/`total`, **mas não aplicam offset/limit** nos resultados. Os `items` contêm **TODOS** os registros do filtro, não apenas uma página.
+
+**Root cause:** métodos de serviço (`list_batches_by_order`, `list_resources_by_work_center`, `list_active_recipes_for_material`, `list_non_conformities`) não recebem `skip`/`limit`; repositories (`get_by_order`, `get_by_work_center`, `get_active_for_material`, `get_by_inspection`) não aplicam offset/limit.
+
+**Impacto:**
+- Envelope sugere paginação, mas entrega tudo. Cliente que confia em `page_size=100` e `total=500` esperará 100 itens, receberá 500.
+- Em dados grandes, excede limites de memória do cliente ou da rede.
+- Inconsistente com endpoints top-level (`/materials`, `/orders`, `/resources`, `/recipes`) que paginam corretamente.
+
+**Correção sugerida:**
+1. Adicionar `skip`/`limit` nos métodos de serviço correspondentes
+2. Adicionar offset/limit nos repositories (`get_by_order`, `get_by_work_center`, `get_active_for_material`, `get_by_inspection`)
+3. Alternativamente, documentar que sub-endpoints não paginam e **remover metadados enganosos** (usar lista simples ou envelope sem `page`/`page_size`)
+
+**Prioridade:** Média
+
+---
+
+#### M-18 — N+1 queries em `list_orders` e `list_recipes`
+
+**Arquivo:** `app/repositories/base.py:25-27`, `app/repositories/production_repository.py:83-113`
+**Problema:** A TASK-007 adicionou `recipe: Optional[ProductionRecipe]` ao schema `ProductionOrder` (L-13). Porém `BaseRepository.get_all()` (usado por `list_orders` e `list_recipes`) não faz `joinedload`. A serialização de cada `ProductionOrder` dispara lazy load de `recipe` (1 query extra × N orders). A serialização de cada `ProductionRecipe` dispara lazy load de `components` e `operations` (2 queries extras × N recipes).
+
+**Impacto:**
+- `/orders` com 100 ordens: 1 + 100 = 101 queries
+- `/recipes` com 50 receitas: 1 + 50 + 100 = 151 queries
+- Performance degrada linearmente em produção
+
+**Correção sugerida:**
+- Override em `ProductionOrderRepository.get_all()` com `joinedload(ProductionOrder.material, ProductionOrder.recipe)`
+- Override em `ProductionRecipeRepository.get_all()` com `joinedload(ProductionRecipe.components, ProductionRecipe.operations)`
+- Ou criar métodos específicos (`list_with_relations`) para endpoints que precisam
+
+**Prioridade:** Média
+
+---
+
+### LOW (novos achados TASK-007)
+
+#### L-17 — `list_orders_by_status` aceita status não-enum
+
+**Arquivo:** `app/api/production.py:95-107`
+**Problema:** Query param `status` é `str` genérico. Valor "INVALID" ou qualquer string arbitrária retorna envelope vazio com 200, em vez de validar contra `ProductionOrderStatus` e retornar 422.
+
+**Impacto:** Baixo — retorna resultado correto (vazio), mas falha em sinalizar input inválido ao cliente.
+
+**Correção sugerida:**
+```python
+def list_orders_by_status(
+    status: ProductionOrderStatus,
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=500),
+    ...
+):
+```
+
+**Prioridade:** Baixa
+
+---
+
+#### L-18 — `update_recipe` sem rollback explícito após modificar relacionamentos
+
+**Arquivo:** `app/services/production_service.py:309-319`
+**Problema:** `recipe.components = []` com `cascade="all, delete-orphan"` marca os RecipeComponent antigos para deleção no próximo flush. Se `_validate_component()` em seguida lançar exceção (ex: `ComponentUnitMismatchError` ou `EntityNotFoundError`), a sessão contém estado "dirty" mas não há rollback explícito. O `session_dependency` fecha a sessão sem commit, então os dados não persistem, mas o comportamento depende do gerenciador de sessão.
+
+**Impacto:** Baixo — em produção, sem rollback explícito, sessão fica em estado inconsistente até ser fechada. Com M-09 (rollback automático no `session_dependency`) ainda pendente, depende do comportamento de fechamento do SQLAlchemy.
+
+**Correção sugerida:** Envolver operações de atualização em try/except com rollback:
+```python
+try:
+    # modificações (components/operations/scalars)
+    self._session.commit()
+except Exception:
+    self._session.rollback()
+    raise
+```
+Relacionado a M-09 (reservado para TASK-008).
+
+**Prioridade:** Baixa
+
+---
+
+#### L-19 — Duplicação do helper `_paginate` em 3 routers
+
+**Arquivo:** `app/api/production.py:30-36`, `app/api/quality.py:28-34`, `app/api/costing.py:23-31`
+**Problema:** Mesmo helper de paginação copiado em três arquivos. Se a fórmula mudar (ex: mudar para 1-indexed, mudar cálculo de `page`), precisa atualizar em 3 lugares.
+
+**Correção sugerida:** Mover `_paginate` para `app/domain/common.py` ou `app/api/_helpers.py` como função reutilizável.
+
+**Prioridade:** Baixa
+
+---
+
+### INFO (novos achados TASK-007)
+
+#### I-23 — `PaginatedResponse` tem `from_attributes=True` desnecessário
+
+**Arquivo:** `app/domain/common.py:13`
+**Observação:** `ConfigDict(from_attributes=True)` só é usado quando Pydantic constrói modelo a partir de atributos de objeto ORM. Como `PaginatedResponse` é construído manualmente com `items` já serializados, `from_attributes` não tem efeito prático.
+
+**Ação:** Pode ser removido para clareza. Sem impacto funcional.
+
+---
+
+#### I-24 — `RecipeOperation.work_center` não valida existência em `ProductionResource`
+
+**Arquivo:** `app/services/production_service.py:264-272`
+**Observação:** `RecipeOperation.work_center` é string livre (`VARCHAR(8)`). A criação de uma operation aceita qualquer work_center, mesmo que não exista em `ProductionResource`. Pode gerar receitas com operações em work centers inexistentes.
+
+**Ação futura:** Validar work_center contra `ProductionResource.work_center` existente (ou documentar como forward-reference intencional).
+
+---
+
+### Análise de Segurança (TASK-007)
+
+| Verificação | Resultado |
+|------------|-----------|
+| SQL injection | ✅ ORM parametrizado em todos os novos repositórios |
+| Validação de entrada | ✅ Pydantic (Decimal `ge=0`, `decimal_places`, enums, `max_length`, `gt=0`) |
+| Erros expõem stack traces | ✅ Exceções de domínio traduzidas (404/409/422) |
+| Secrets no código | ✅ Nenhum |
+| Logs sem dados sensíveis | ✅ Apenas IDs e códigos de domínio (recipe_code, order_id) |
+| Cascade delete (novo) | ✅ `ProductionRecipe→components/operations` com `delete-orphan` |
+| Integridade transacional | ⚠️ Padrão commit/rollback respeitado na maioria dos métodos; ver L-18 |
+| `ComponentUnitMismatchError` (422) | ✅ Handler registrado em `main.py` |
+| `EntityHasDependenciesError` em `delete_recipe` | ✅ Valida ProductionOrder dependente via select direto |
+| `CostRecord` CHECK constraints (H-02) | ✅ Mantidos intactos; totals nunca divergem |
+
+### Novos Testes Adicionados (TASK-007)
+
+- `tests/unit/test_api_costing.py` — 15 testes (CRUD CO, summary, duplicate, not found, partial update, invalid order)
+- `tests/unit/test_recipes_crud.py` — 15 testes (create, duplicate, unit mismatch, BOM+operations, dependency, delete, L-13 recipe em Order)
+- Atualizações em `test_api_production.py` e `test_api_quality.py` para envelopes de paginação
+
+**Total: 143 testes passando (era 113)**
+
+---
+
 ## Análise de Segurança Consolidada
 
 ### ✅ Pontos Positivos
@@ -1053,12 +1228,16 @@ Usar fixtures que criam dados isolados ou capturar IDs dinamicamente.
 | .env no .gitignore | ✅ Excluído |
 | .env.example sem credenciais | ✅ Placeholders usados |
 | SQL injection | ✅ ORM parametrizado |
-| Validação de entrada | ✅ Pydantic (Field, enums, ranges) |
+| Validação de entrada | ✅ Pydantic (Field, enums, ranges, Decimal constraints) |
 | Stack traces em erros | ✅ Erros de domínio traduzidos |
 | Logs sem dados sensíveis | ✅ Apenas códigos |
 | CHECK constraints no DB | ✅ Enums validados no DB |
 | Transaction boundaries | ✅ Services gerenciam commit/rollback |
 | Thread safety | ✅ Double-check locking em connection.py |
+| Cascade delete (Recipe→BOM) | ✅ `ProductionRecipe.components/operations` com `delete-orphan` |
+| Consistência de unidade (M-11/L-05) | ✅ `ComponentUnitMismatchError` em create/update de Recipe |
+| Dependências em delete_recipe | ✅ `EntityHasDependenciesError` valida ProductionOrder dependente |
+| CO API + summary | ✅ 6 endpoints, variance calculado de forma segura (divisão por zero tratada) |
 
 ### ⚠️ Vulnerabilidades Identificadas
 
@@ -1089,54 +1268,56 @@ Usar fixtures que criam dados isolados ou capturar IDs dinamicamente.
 
 ## Análise de Testes
 
-**Cobertura Atual:**
-- 113 testes passando
-- Cobre: Materials, Production Orders, Batches, Resources, Quality Inspections, Non-Conformities
-- **Não cobre:** Recipes CRUD, CostRecords API, transições de estado, paginação, erros de concorrência
+**Cobertura Atual (pós TASK-007):**
+- 143 testes passando (era 113)
+- Cobre: Materials, Production Orders, Batches, Resources, Quality Inspections, Non-Conformities, **Recipes CRUD**, **CostRecords API**, **resumo CO**, **L-13 recipe em Order**, paginação (envelope)
+- **Não cobre:** transições de estado, erros de concorrência, paginação em sub-endpoints (M-17), performance N+1 (M-18)
 
-**Testes Ausentes:**
-1. Recipes CRUD via API
-2. Transições de estado (ProductionOrder, QualityInspection)
-3. Paginação e metadados
-4. Concorrência (dois clientes criando mesma entidade)
-5. Rate limiting (quando implementado)
-6. Autenticação/autorização (quando implementado)
+**Testes Ausentes (atualizados):**
+1. Transições de estado (ProductionOrder, QualityInspection) — reservado para M-14/M-15 em TASK-009
+2. Concorrência (dois clientes criando mesma entidade)
+3. Paginação real em sub-endpoints (M-17 ainda não corrigido)
+4. Rate limiting (quando implementado) — TASK-009
+5. Autenticação/autorização (quando implementado) — TASK-009
+6. Performance N+1 (M-18) — requer integração com DB real
 
 ---
 
 ## Recomendações Prioritárias
 
-### Para TASK-007 (Próxima Tarefa)
-
-1. **H-02** — Implementar API CRUD para `ProductionRecipe`
-2. **M-13** — Padronizar paginação em todos os endpoints de listagem
-3. **L-12** — Implementar API para `CostRecord` (CO)
-4. **L-13** — Carregar `recipe` em `get_with_material()`
-
 ### Para TASK-008 (Dashboard)
 
-1. **M-09** — Melhorar `session_dependency()` com rollback automático
-2. **M-12** — Adicionar filtro `?active=all` em `list_materials()`
-3. **L-09/L-10** — Adicionar índices em colunas `status`
-4. **I-21** — Melhorar `/health` com verificação de banco
+1. **M-17** — Corrigir paginação em sub-endpoints (envelope enganosamente não-paginado)
+2. **M-18** — Adicionar `joinedload` em `get_all` (ou overrides específicos) para evitar N+1
+3. **M-09** — Melhorar `session_dependency()` com rollback automático
+4. **M-12** — Adicionar filtro `?active=all` em `list_materials()`
+5. **L-09/L-10** — Adicionar índices em colunas `status`
+6. **I-21** — Melhorar `/health` com verificação de banco
+7. **L-17** — Validar `status` em `list_orders_by_status` contra `ProductionOrderStatus` enum
+8. **L-19** — Extrair `_paginate` para helper comum em `app/domain/common.py`
 
 ### Para TASK-009 (Produção)
 
 1. **H-01** — Implementar autenticação/autorização
 2. **M-14/M-15** — Implementar máquinas de estado para ordens e inspeções
 3. **M-16** — Adicionar rate limiting
-4. **L-14** — Configurar cascade delete ou validação de dependências
+4. **L-14** — Completar cascade delete (ProductionOrder→Batches)
+5. **L-18** — Adicionar rollback explícito em `update_recipe`
 
 ---
 
-## Conclusão
+## Conclusão (atualizada pós TASK-007)
 
-**Estado Geral:** ✅ **BOM** — Código limpo, bem testado, arquitetura sólida.
+**Estado Geral:** ✅ **BOM** — TASK-007 entregou funcionalidade sólida (CO API + Recipes CRUD + paginação padrão) com boa cobertura de testes (143 testes). Código limpo, arquitetura coerente.
 
-**Pronto para Próxima Tarefa:** ✅ Sim — TASK-007 pode prosseguir.
+**Achados principais TASK-007:** 0 CRITICAL, 0 HIGH, 2 MEDIUM, 3 LOW, 2 INFO.
 
-**Bloqueante para Produção:** ⚠️ Sim — Requer autenticação (H-01) e API de Recipes (H-02).
+**Pronto para Produção:** ⚠️ Não — requer TASK-008/009 para autenticação (H-01), correções de performance (M-17, M-18) e rollback automático de sessão (M-09).
 
-**Risco de Segurança:** ⚠️ Médio — Ausência de autenticação é crítico para produção, mas esperado nesta fase de desenvolvimento.
+**Bloqueante para Dashboard (TASK-008):** ⚠️ Parcial — M-17 (paginação sub-endpoints) e M-18 (N+1) devem ser corrigidos antes do dashboard consumir os endpoints de forma performática e previsível.
 
-**Recomendação Final:** Prosseguir com TASK-007 (CO + Recipes API + paginação) e reservar TASK-009 para autenticação/autorização.
+**Itens Anteriores Resolvidos:** 7 itens de auditorias anteriores tratadas na TASK-007 (H-02 Recipes, M-11 unit inconsistency, L-05, L-12 CO API, L-13 recipe eager load, parcialmente M-13 e L-14).
+
+**Risco de Segurança:** ⚠️ Médio — ausência de autenticação permanece crítica (H-01 reservado para TASK-009). Nenhuma nova vulnerabilidade de segurança introduzida na TASK-007.
+
+**Recomendação Final:** Prosseguir com TASK-008 (Dashboard) priorizando M-17 e M-18 (performance/correção de paginação), depois TASK-009 com autenticação/autorização.

@@ -3,9 +3,11 @@
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 
+from app.api.costing import router as costing_router
 from app.api.production import router as production_router
 from app.api.quality import router as quality_router
 from app.core.exceptions import (
+    ComponentUnitMismatchError,
     DomainError,
     DuplicateEntityError,
     EntityHasDependenciesError,
@@ -24,6 +26,7 @@ app = FastAPI(
 
 app.include_router(production_router)
 app.include_router(quality_router)
+app.include_router(costing_router)
 
 
 # ── Global exception handlers ────────────────────────────────────────────
@@ -40,6 +43,11 @@ async def handle_duplicate(request, exc: DuplicateEntityError):
 
 @app.exception_handler(RecipeMaterialMismatchError)
 async def handle_mismatch(request, exc: RecipeMaterialMismatchError):
+    return JSONResponse(status_code=422, content={"detail": str(exc)})
+
+
+@app.exception_handler(ComponentUnitMismatchError)
+async def handle_unit_mismatch(request, exc: ComponentUnitMismatchError):
     return JSONResponse(status_code=422, content={"detail": str(exc)})
 
 

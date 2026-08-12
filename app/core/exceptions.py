@@ -28,6 +28,15 @@ class RecipeMaterialMismatchError(DomainError):
         )
 
 
+class ComponentUnitMismatchError(DomainError):
+    def __init__(self, component_material_id: int, unit: str, base_unit: str) -> None:
+        self.component_material_id = component_material_id
+        super().__init__(
+            f"Component material {component_material_id!r} unit {unit!r} does not match "
+            f"its base unit {base_unit!r}"
+        )
+
+
 class EntityHasDependenciesError(DomainError):
     def __init__(self, entity: str, identifier, dependencies: list[str]) -> None:
         self.entity = entity
