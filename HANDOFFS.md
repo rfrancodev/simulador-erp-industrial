@@ -4,6 +4,55 @@ This file documents the completion of each task, serving as the source of truth 
 
 ---
 
+## TASK-018 — Integração PP→QM→CO passo 6 (rework cost automático)
+
+**Status:** DONE
+
+**Data:** 2026-08-12
+
+**IMPLEMENTADO:**
+- `EVENT_INSPECTION_FAILED = "inspection.failed"` no `app/core/events.py`
+- `QualityService.update_inspection_result(FAILED)` publica o evento antes do commit (com `try/except Exception: rollback()`)
+- `app/services/integration.py`:
+  - `_on_inspection_failed` — encontra batch→ordem→cost record e aplica rework
+  - `_apply_rework_to_order` — aplica +8% (`_REWORK_COST_FACTOR`) aos custos reais (idempotente: no-op se `actual_total_cost` já setado)
+  - `_auto_create_cost_record` (order.completed) — se já houve inspeção FAILED, aplica rework ao criar o cost record
+- Cobre ambos os fluxos: inspeção falha antes OU depois da ordem completar
+
+**ARQUIVOS ALTERADOS:**
+- `app/core/events.py` — `EVENT_INSPECTION_FAILED`
+- `app/services/integration.py` — handler rework + verificação no order.completed
+- `app/services/quality_service.py` — publish do evento + rollback
+- `tests/unit/test_integration.py` — 2 testes novos (`TestReworkIntegration`)
+
+**DOCUMENTOS CONSULTADOS:**
+- `plano/08-integracao-eventos.md` — passo 6: "Se QM = FAIL → CO registra impacto financeiro do retrabalho/scrap"
+
+**TESTES:**
+```
+248 passed in 20.74s
+```
+- `.venv/bin/pytest tests/` → **248 passed** (era 246)
+- `npm run typecheck` → OK
+- `npm run lint` → OK
+- Smoke test: planned R$ 24.300 → actual R$ 26.244 (rework +8%, variance R$ 1.944)
+
+**AUTO REVIEW:**
+- Passo 6 do plano/08 agora implementado (QM→CO)
+- Idempotente (rework aplicado uma vez por ordem)
+- Cobre ambos os fluxos (falha antes/depois da ordem completar)
+
+**SECURITY AUDIT:**
+- SQL injection: ✅ ORM parametrizado
+- Integridade transacional: ✅ evento publicado antes do commit + rollback
+- Idempotência: ✅ `actual_total_cost is not None` impede duplicação
+- Sem input de usuário
+
+**PRÓXIMA TAREFA:**
+TASK-019 — Infraestrutura real (deploy VPS/Cloudflare/PostgreSQL central)
+
+---
+
 ## TASK-017 — Telas por módulo (Production, Quality, Cost)
 
 **Status:** DONE

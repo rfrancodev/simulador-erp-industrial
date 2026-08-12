@@ -494,7 +494,15 @@ TASK-020 → CI/hardening (multi-stage build, hadolint, docker compose config)
 - Cost: planned/actual, variance, cost/liter, quality cost + cost by material
 - 246 testes (era 243). 3 testes novos
 
-### Próxima: TASK-018 — Integração PP→QM→CO passo 6 (rework cost automático)
+### TASK-018 — Integração PP→QM→CO passo 6 (rework cost automático)
+**Status:** DONE
+- `EVENT_INSPECTION_FAILED` no EventBus
+- `QualityService.update_inspection_result(FAILED)` publica evento (com rollback)
+- Handler `_on_inspection_failed` + `_apply_rework_to_order` — aplica +8% rework ao cost record (idempotente)
+- `order.completed` verifica inspeções FAILED prévias e aplica rework ao criar cost record
+- 248 testes (era 246). 2 testes novos
+
+### Próxima: TASK-019 — Infraestrutura real (deploy VPS/Cloudflare/PostgreSQL central)
 
 ---
 

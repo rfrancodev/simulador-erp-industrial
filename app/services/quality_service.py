@@ -13,6 +13,7 @@ from logging import getLogger
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.core.events import EVENT_INSPECTION_FAILED, event_bus
 from app.core.exceptions import DuplicateEntityError, EntityNotFoundError
 from app.domain.entities import NonConformity, QualityInspection
 from app.domain.quality.inspection import (
@@ -96,7 +97,13 @@ class QualityService:
             result_data["result_date"] = datetime.now(UTC)
 
         updated = self.inspections.update_result(id, status, **result_data)
-        self._session.commit()
+        try:
+            if target == InspectionStatus.FAILED:
+                event_bus.publish(EVENT_INSPECTION_FAILED, session=self._session, inspection=updated)
+            self._session.commit()
+        except Exception:
+            self._session.rollback()
+            raise
         logger.info(
             "Quality inspection %s result recorded (%s -> %s)",
             updated.inspection_lot,

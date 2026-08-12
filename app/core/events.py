@@ -13,6 +13,7 @@ from typing import Callable
 
 EVENT_BATCH_CREATED = "batch.created"
 EVENT_ORDER_COMPLETED = "order.completed"
+EVENT_INSPECTION_FAILED = "inspection.failed"
 
 
 class EventBus:

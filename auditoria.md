@@ -3473,3 +3473,85 @@ oee = min(1.0, availability * performance * quality)
 **Risco de Segurança:** Baixo — HTML público (documentado como I-31), dados sintéticos, sem input de usuário.
 
 **Recomendação Final:** Os achados INFO são melhorias incrementais (performance, cobertura de testes). Nenhum bloqueante.
+
+---
+
+## Auditoria TASK-018 — Integração PP→QM→CO passo 6 (rework cost automático)
+
+**Data:** 2026-08-12
+**Revisor:** Auditor de Segurança/Qualidade (pós-implementação)
+**Escopo:** `app/core/events.py`, `app/services/integration.py` (handlers de rework), `app/services/quality_service.py` (publish do evento), `tests/unit/test_integration.py`.
+
+### Sumário
+
+| Severidade | Quantidade |
+|-----------|-----------|
+| CRITICAL | 0 |
+| HIGH | 0 |
+| MEDIUM | 0 |
+| LOW | 0 |
+| INFO | 4 |
+
+---
+
+### ✅ Pontos Positivos
+
+| Verificação | Resultado |
+|------------|-----------|
+| SQL injection | ✅ ORM parametrizado |
+| Integridade transacional | ✅ Evento publicado antes do commit + rollback |
+| Idempotência | ✅ `actual_total_cost is not None` impede duplicação |
+| CHECK constraint | ✅ `actual_total = sum(components)` preservado |
+| Cobertura de fluxos | ✅ Ambos os fluxos (falha antes/depois da ordem completar) |
+| State machine | ✅ SCRAP não dispara rework (é disposição) |
+| Performance | ✅ `.limit(1)` no `_order_has_failed_inspection` |
+
+---
+
+## INFO
+
+### I-78 — Sem teste de idempotência
+
+**Arquivo:** `tests/unit/test_integration.py`
+**Observação:** Os testes verificam que o rework É aplicado, mas não testam que NÃO é aplicado novamente se `actual_total_cost` já foi setado (por rework anterior ou atualização manual).
+**Ação futura:** Adicionar teste com `actual_total_cost` já setado (verificar que o handler não sobrescreve).
+
+---
+
+### I-79 — Sem teste do valor exato do rework
+
+**Arquivo:** `tests/unit/test_integration.py`
+**Observação:** Os testes verificam `actual_total_cost > planned_total_cost`, mas não verificam o valor exato (+8% do planned).
+**Ação futura:** Adicionar teste com assert de valor esperado (ex: `actual = planned * 1.08`).
+
+---
+
+### I-80 — Rework cost é +8% fixo (simplificação)
+
+**Arquivo:** `app/services/integration.py:47`
+**Observação:** O `_REWORK_COST_FACTOR = 0.08` é uma constante. Na prática, o custo de retrabalho/scrap depende da severidade, tipo de defeito, etc. Mas para fins de demonstração, o +8% fixo é aceitável (consistente com a simulação).
+**Ação futura:** Tornar o fator configurável ou derivado dos parâmetros da inspeção (severity, disposition).
+
+---
+
+### I-81 — Log do handler registra apenas a inspeção
+
+**Arquivo:** `app/services/integration.py:97`
+**Observação:** `logger.info("Applied rework cost after inspection %s failed", inspection.inspection_lot)` registra a inspeção, mas não a ordem afetada. Para debugging, seria útil registrar ambos.
+**Ação futura:** Adicionar `order_id` ao log.
+
+---
+
+## Análise Consolidada (TASK-018)
+
+**Estado Geral:** ✅ **BOM** — TASK-018 implementa corretamente o passo 6 do plano/08 (QM→CO). Nenhum achado CRITICAL/HIGH/MEDIUM/LOW.
+
+**Achados:** 0 CRITICAL, 0 HIGH, 0 MEDIUM, 0 LOW, 4 INFO.
+
+**Pronto para Produção:** ✅ Sim (para demo/simulação).
+
+**Segurança:** ✅ Sem vulnerabilidades. Transações atômicas, idempotência garantida, CHECK constraints preservadas.
+
+**Risco de Segurança:** Baixo — integração in-process, sem exposição externa.
+
+**Recomendação Final:** Os achados INFO são melhorias incrementais (testes, logs, configurabilidade). Nenhum bloqueante.

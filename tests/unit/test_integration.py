@@ -1,4 +1,4 @@
-"""Tests for cross-module integration events (TASK-012)."""
+"""Tests for cross-module integration events (TASK-012, TASK-018)."""
 
 from decimal import Decimal
 
@@ -10,9 +10,11 @@ from app.domain.costing.cost import CostRecordCreate
 from app.domain.entities import Batch
 from app.domain.production.batch import BatchCreate
 from app.domain.production.recipe import ProductionOrderStatus
+from app.domain.quality.inspection import InspectionStatus, QualityInspectionResult
 from app.repositories.costing_repository import CostRecordRepository
 from app.repositories.quality_repository import QualityInspectionRepository
 from app.services.production_service import ProductionService
+from app.services.quality_service import QualityService
 
 
 def _create_batch(service: ProductionService, order_id: int, resource_id: int, number: str):
@@ -108,3 +110,54 @@ class TestOrderCompletedIntegration:
         service.update_order_status(sample_production_order.id, ProductionOrderStatus.COMPLETED)
 
         assert CostRecordRepository(session).count() == 1
+
+
+class TestReworkIntegration:
+    def test_inspection_failed_applies_rework_to_existing_cost_record(
+        self, session, sample_production_order, sample_resource
+    ):
+        service = ProductionService(session)
+        service.update_order_status(sample_production_order.id, ProductionOrderStatus.RELEASED)
+        service.update_order_status(sample_production_order.id, ProductionOrderStatus.IN_PROCESS)
+        service.update_order_status(sample_production_order.id, ProductionOrderStatus.COMPLETED)
+
+        record = CostRecordRepository(session).get_by_order(sample_production_order.id)
+        assert record.actual_total_cost is None
+
+        batch = _create_batch(service, sample_production_order.id, sample_resource.id, "B-REWORK")
+        inspection = QualityInspectionRepository(session).get_by_batch(batch.id)
+
+        qsvc = QualityService(session)
+        qsvc.update_inspection_result(
+            inspection.id, QualityInspectionResult(inspection_status=InspectionStatus.IN_PROGRESS)
+        )
+        qsvc.update_inspection_result(
+            inspection.id, QualityInspectionResult(inspection_status=InspectionStatus.FAILED)
+        )
+
+        session.refresh(record)
+        assert record.actual_total_cost is not None
+        assert record.actual_total_cost > record.planned_total_cost
+
+    def test_order_completed_with_failed_inspection_applies_rework(
+        self, session, sample_production_order, sample_resource
+    ):
+        service = ProductionService(session)
+        batch = _create_batch(service, sample_production_order.id, sample_resource.id, "B-REWORK2")
+        inspection = QualityInspectionRepository(session).get_by_batch(batch.id)
+
+        qsvc = QualityService(session)
+        qsvc.update_inspection_result(
+            inspection.id, QualityInspectionResult(inspection_status=InspectionStatus.IN_PROGRESS)
+        )
+        qsvc.update_inspection_result(
+            inspection.id, QualityInspectionResult(inspection_status=InspectionStatus.FAILED)
+        )
+
+        service.update_order_status(sample_production_order.id, ProductionOrderStatus.RELEASED)
+        service.update_order_status(sample_production_order.id, ProductionOrderStatus.IN_PROCESS)
+        service.update_order_status(sample_production_order.id, ProductionOrderStatus.COMPLETED)
+
+        record = CostRecordRepository(session).get_by_order(sample_production_order.id)
+        assert record.actual_total_cost is not None
+        assert record.actual_total_cost > record.planned_total_cost
