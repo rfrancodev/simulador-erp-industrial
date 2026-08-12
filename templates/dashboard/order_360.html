@@ -1,0 +1,82 @@
+{% extends "dashboard/base.html" %}
+{% block content %}
+<h1>Order 360&deg; — Vis&atilde;o Integrada</h1>
+<p style="color: #718096; margin-bottom: 24px; font-size: 14px;">Informe uma Production Order (ex: PO-2026-00124) para visualizar a integra&ccedil;&atilde;o PP-PI, QM e CO.</p>
+
+<div class="search-box">
+    <input type="text" id="order-input" placeholder="Digite o Order Number..." autofocus>
+    <button onclick="searchOrder()">Buscar</button>
+</div>
+
+<div id="order-result" class="order-result">
+    <h3 id="order-title"></h3>
+    <div class="module-card pp" id="card-pp"></div>
+    <div class="module-card qm" id="card-qm"></div>
+    <div class="module-card co" id="card-co"></div>
+</div>
+
+<div id="error-msg" style="display:none; color: #e53e3e; margin-top: 16px;"></div>
+
+<script>
+    async function searchOrder() {
+        const input = document.getElementById('order-input').value.trim();
+        const result = document.getElementById('order-result');
+        const error = document.getElementById('error-msg');
+        result.classList.remove('visible');
+        error.style.display = 'none';
+
+        if (!input) return;
+
+        const resp = await fetch(`/api/dashboard/order-360/${encodeURIComponent(input)}`);
+        if (!resp.ok) {
+            error.textContent = resp.status === 404 ? 'Order not found.' : 'Error fetching order data.';
+            error.style.display = 'block';
+            return;
+        }
+
+        const data = await resp.json();
+        result.classList.add('visible');
+
+        document.getElementById('order-title').textContent = data.order.order_number + ' — ' + (data.material.name || 'Unknown Material');
+
+        const pp = document.getElementById('card-pp');
+        pp.innerHTML = '<h4>PP-PI — Production</h4>' +
+            '<div class="detail">' +
+            '<strong>Material:</strong> ' + (data.material.name || '-') + ' (' + (data.material.code || '-') + ')<br>' +
+            '<strong>Recipe:</strong> ' + (data.recipe.code || '-') + ' v' + (data.recipe.version || '-') + '<br>' +
+            '<strong>Status:</strong> ' + data.order.status + '<br>' +
+            '<strong>Planned:</strong> ' + data.order.planned_quantity + ' L<br>' +
+            '<strong>Actual:</strong> ' + (data.order.actual_quantity || '-') + ' L<br>' +
+            '<strong>Yield:</strong> ' + (data.order.yield_percent != null ? data.order.yield_percent + '%' : '-') +
+            '</div>';
+
+        const qm = document.getElementById('card-qm');
+        let qmHtml = '<h4>QM — Quality</h4><div class="detail">';
+        if (data.quality.length > 0) {
+            data.quality.forEach(i => {
+                qmHtml += '<strong>Lot:</strong> ' + i.inspection_lot + '<br>' +
+                    '<strong>Status:</strong> ' + i.status + '<br>' +
+                    '<strong>pH:</strong> ' + (i.pH != null ? i.pH : '-') + '<br>' +
+                    '<strong>Alc:</strong> ' + (i.alcohol_percent != null ? i.alcohol_percent + '%' : '-');
+            });
+        } else {
+            qmHtml += 'No quality inspections recorded.';
+        }
+        qmHtml += '</div>';
+        qm.innerHTML = qmHtml;
+
+        const co = document.getElementById('card-co');
+        let coHtml = '<h4>CO — Cost</h4><div class="detail">';
+        if (data.cost) {
+            coHtml += '<strong>Planned:</strong> R$ ' + data.cost.planned_total.toLocaleString() + '<br>' +
+                '<strong>Actual:</strong> R$ ' + (data.cost.actual_total != null ? data.cost.actual_total.toLocaleString() : '-') + '<br>' +
+                '<strong>Variance:</strong> ' + (data.cost.variance != null ? 'R$ ' + data.cost.variance.toLocaleString() : '-') + '<br>' +
+                '<strong>Variance %:</strong> ' + (data.cost.variance_percent != null ? data.cost.variance_percent.toFixed(1) + '%' : '-');
+        } else {
+            coHtml += 'No cost records for this order.';
+        }
+        coHtml += '</div>';
+        co.innerHTML = coHtml;
+    }
+</script>
+{% endblock %}

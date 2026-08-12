@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
 from app.database.connection import session_dependency
-from app.domain.common import PaginatedResponse
+from app.domain.common import PaginatedResponse, paginate
 from app.domain.costing.cost import (
     CostRecord,
     CostRecordCreate,
@@ -20,17 +20,6 @@ def _svc(session: Session = Depends(session_dependency)) -> CostingService:
     return CostingService(session)
 
 
-def _paginate(
-    svc: CostingService, items: list[CostRecord], skip: int, limit: int
-) -> PaginatedResponse[CostRecord]:
-    return PaginatedResponse(
-        items=items,
-        total=svc.records.count(),
-        page=skip // limit + 1 if limit > 0 else 1,
-        page_size=limit,
-    )
-
-
 # ── Cost Records ─────────────────────────────────────────────────────────────
 
 @router.get("/records", response_model=PaginatedResponse[CostRecord])
@@ -39,7 +28,7 @@ def list_cost_records(
     limit: int = Query(100, ge=1, le=500),
     svc: CostingService = Depends(_svc),
 ):
-    return _paginate(svc, svc.list_cost_records(skip, limit), skip, limit)
+    return paginate(svc.list_cost_records(skip, limit), svc.records.count(), skip, limit)
 
 
 @router.post("/records", response_model=CostRecord, status_code=201)

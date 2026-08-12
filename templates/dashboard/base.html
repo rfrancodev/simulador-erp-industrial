@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Industrial ERP Simulator — Dashboard</title>
+    <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"
+            integrity="sha384-OLBgp1GsljhM2TJ+sbHjaiH9txEUvgdDTAzHv2P24donTt6/529l+9Ua0vFImLlb"
+            crossorigin="anonymous"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f5f7fa; color: #1a1a2e; }
+        .nav { background: #1a1a2e; color: #fff; padding: 0 24px; display: flex; align-items: center; height: 56px; gap: 24px; }
+        .nav a { color: #a0aec0; text-decoration: none; font-size: 14px; font-weight: 500; }
+        .nav a:hover, .nav a.active { color: #fff; }
+        .nav .brand { font-size: 16px; font-weight: 700; color: #fff; margin-right: 16px; }
+        .container { max-width: 1280px; margin: 0 auto; padding: 24px; }
+        h1 { font-size: 24px; margin-bottom: 24px; color: #2d3748; }
+        .kpi-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; margin-bottom: 32px; }
+        .kpi-card { background: #fff; border-radius: 8px; padding: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
+        .kpi-card .label { font-size: 13px; color: #718096; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px; }
+        .kpi-card .value { font-size: 28px; font-weight: 700; color: #2d3748; }
+        .kpi-card .sub { font-size: 13px; color: #a0aec0; margin-top: 4px; }
+        .kpi-card .positive { color: #38a169; }
+        .kpi-card .negative { color: #e53e3e; }
+        .chart-row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 32px; }
+        .chart-card { background: #fff; border-radius: 8px; padding: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
+        .chart-card h2 { font-size: 16px; margin-bottom: 16px; color: #4a5568; }
+        .full-width { grid-column: 1 / -1; }
+        .search-box { display: flex; gap: 8px; margin-bottom: 24px; }
+        .search-box input { flex: 1; padding: 10px 16px; border: 1px solid #e2e8f0; border-radius: 6px; font-size: 14px; }
+        .search-box button { padding: 10px 24px; background: #3182ce; color: #fff; border: none; border-radius: 6px; font-weight: 600; cursor: pointer; }
+        .search-box button:hover { background: #2b6cb0; }
+        .order-result { display: none; background: #fff; border-radius: 8px; padding: 24px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
+        .order-result.visible { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; }
+        .order-result h3 { grid-column: 1 / -1; font-size: 18px; color: #2d3748; }
+        .module-card { background: #f7fafc; border-radius: 6px; padding: 16px; border-left: 4px solid #3182ce; }
+        .module-card.pp { border-color: #3182ce; }
+        .module-card.qm { border-color: #38a169; }
+        .module-card.co { border-color: #d69e2e; }
+        .module-card h4 { font-size: 14px; color: #718096; margin-bottom: 8px; }
+        .module-card .detail { font-size: 13px; color: #4a5568; line-height: 1.6; }
+        .module-card .detail strong { color: #2d3748; }
+        @media (max-width: 768px) { .chart-row { grid-template-columns: 1fr; } .order-result.visible { grid-template-columns: 1fr; } }
+    </style>
+</head>
+<body>
+    <nav class="nav">
+        <span class="brand">INDUSTRIAL ERP SIMULATOR</span>
+        <a href="/dashboard/" class="active">Dashboard</a>
+        <a href="/dashboard/order-360">Order 360°</a>
+        <a href="/docs">API Docs</a>
+    </nav>
+    <div class="container">
+        {% block content %}{% endblock %}
+    </div>
+</body>
+</html>

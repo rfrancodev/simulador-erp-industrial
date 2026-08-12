@@ -91,11 +91,11 @@ class QualityService:
 
     # ── Non-Conformities ────────────────────────────────────────────────
 
-    def list_non_conformities(self, inspection_id: int) -> list[NonConformity]:
+    def list_non_conformities(self, inspection_id: int, skip: int = 0, limit: int = 100) -> list[NonConformity]:
         inspection = self.inspections.get_by_id(inspection_id)
         if inspection is None:
             raise EntityNotFoundError("QualityInspection", inspection_id)
-        return self.non_conformities.get_by_inspection(inspection_id)
+        return self.non_conformities.get_by_inspection(inspection_id, skip, limit)
 
     def add_non_conformity(
         self, inspection_id: int, data: NonConformityCreate

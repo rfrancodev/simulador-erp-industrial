@@ -1,9 +1,13 @@
 """Industrial ERP Simulator — API endpoints."""
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.responses import JSONResponse
+from sqlalchemy import text
+from sqlalchemy.orm import Session
 
 from app.api.costing import router as costing_router
+from app.api.dashboard import api_router as dashboard_api_router
+from app.api.dashboard import router as dashboard_router
 from app.api.production import router as production_router
 from app.api.quality import router as quality_router
 from app.core.exceptions import (
@@ -15,6 +19,7 @@ from app.core.exceptions import (
     RecipeMaterialMismatchError,
 )
 from app.core.logging import setup_logging
+from app.database.connection import session_dependency
 
 setup_logging()
 
@@ -27,6 +32,8 @@ app = FastAPI(
 app.include_router(production_router)
 app.include_router(quality_router)
 app.include_router(costing_router)
+app.include_router(dashboard_router)
+app.include_router(dashboard_api_router)
 
 
 # ── Global exception handlers ────────────────────────────────────────────
@@ -62,5 +69,9 @@ async def handle_domain_error(request, exc: DomainError):
 
 
 @app.get("/health")
-async def health():
-    return {"status": "ok"}
+async def health(session: Session = Depends(session_dependency)):
+    try:
+        session.execute(text("SELECT 1"))
+        return {"status": "ok", "database": "connected"}
+    except Exception:
+        return JSONResponse(status_code=503, content={"status": "error", "database": "unavailable"})

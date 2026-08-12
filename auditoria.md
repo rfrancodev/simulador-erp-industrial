@@ -1321,3 +1321,418 @@ Relacionado a M-09 (reservado para TASK-008).
 **Risco de Segurança:** ⚠️ Médio — ausência de autenticação permanece crítica (H-01 reservado para TASK-009). Nenhuma nova vulnerabilidade de segurança introduzida na TASK-007.
 
 **Recomendação Final:** Prosseguir com TASK-008 (Dashboard) priorizando M-17 e M-18 (performance/correção de paginação), depois TASK-009 com autenticação/autorização.
+
+---
+
+## Auditoria TASK-008 — Dashboard + Correções de Performance
+
+**Data:** 2026-08-12
+**Revisor:** Auditor de Segurança/Qualidade (pós-implementação)
+**Escopo:** TASK-008 — Correções M-09, M-12, M-17, M-18, L-09/L-10, L-17, L-19, I-21 + Dashboard (analytics, templates, router)
+
+### Sumário
+
+| Severidade | Quantidade |
+|-----------|-----------|
+| CRITICAL | 0 |
+| HIGH | 0 |
+| MEDIUM | 0 |
+| LOW | 0 |
+| INFO | 2 |
+
+---
+
+### Itens Anteriores Resolvidos na TASK-008
+
+| Item | Severidade | Status | Correção Aplicada |
+|------|-----------|--------|-------------------|
+| M-09 session_dependency sem rollback | MEDIUM | ✅ Corrigido | `session_dependency()` agora captura `Exception`, faz `rollback()` e re-lança |
+| M-12 list_materials() só ativos | MEDIUM | ✅ Corrigido | Query param `?active=true\|false\|<omit>`; repo com `list_all()`, `list_inactive()`, `count_all()`, `count_inactive()` |
+| M-17 Paginação falsa em sub-endpoints | MEDIUM | ✅ Corrigido | `skip`/`limit` adicionados em `BatchRepository.get_by_order()`, `ProductionResourceRepository.get_by_work_center()`, `ProductionRecipeRepository.get_active_for_material()`, `NonConformityRepository.get_by_inspection()` |
+| M-18 N+1 queries em list_orders/list_recipes | MEDIUM | ✅ Corrigido | `ProductionOrderRepository.get_all()` com `joinedload(ProductionOrder.material, ProductionOrder.recipe)`. `ProductionRecipeRepository.get_all()` com `joinedload(ProductionRecipe.components, ProductionRecipe.operations)` |
+| L-09 Índice ausente production_orders.status | LOW | ✅ Corrigido | `index=True` em `ProductionOrder.status` |
+| L-10 Índice ausente quality_inspections.inspection_status | LOW | ✅ Corrigido | `index=True` em `QualityInspection.inspection_status` |
+| L-17 list_orders_by_status aceita string não-enum | LOW | ✅ Corrigido | Path param tipado como `ProductionOrderStatus` (validação automática 422), service converte `.value` para repo |
+| L-19 Duplicação _paginate em 3 routers | LOW | ✅ Corrigido | Função `paginate()` extraída para `app/domain/common.py`; 3 routers importam e usam a implementação compartilhada |
+| I-21 /health sem verificação de banco | INFO | ✅ Corrigido | `GET /health` agora executa `SELECT 1` e retorna `{"status":"ok","database":"connected"}` ou 503 se DB indisponível |
+
+### Dashboard Implementado
+
+| Componente | Arquivo |
+|-----------|--------|
+| Analytics Service | `app/analytics/service.py` — `executive_kpis()`, `production_stats()`, `quality_stats()`, `cost_stats()`, `order_360()`, `order_status_distribution()`, `inspection_status_distribution()`, `cost_variance_by_order()` |
+| Page Router | `app/api/dashboard.py` — `GET /dashboard/` (Home), `GET /dashboard/order-360` (Order 360°) |
+| Data API Router | `app/api/dashboard.py` — `GET /api/dashboard/kpis`, `GET /api/dashboard/order-360/{order_number}`, `GET /api/dashboard/production-stats`, `GET /api/dashboard/quality-stats`, `GET /api/dashboard/cost-stats` |
+| Templates | `templates/dashboard/base.html` (layout base), `templates/dashboard/home.html` (KPIs + gráficos Plotly), `templates/dashboard/order_360.html` (visão integrada) |
+
+### INFO (novos achados TASK-008)
+
+#### I-25 — Plotly.js via CDN sem SRI hash
+
+**Arquivo:** `templates/dashboard/base.html:6`
+**Observação:** O script Plotly.js é carregado de `cdn.plot.ly` sem atributo `integrity` (SRI hash). Em produção, um CDN comprometido poderia injetar scripts maliciosos.
+**Ação futura:** Adicionar SRI hash ou servir de fonte local/confiável.
+
+**Status TASK-008.1:** ✅ Corrigido — SRI hash `sha384-OLBgp1GsljhM2TJ+sbHjaiH9txEUvgdDTAzHv2P24donTt6/529l+9Ua0vFImLlb` adicionado com `crossorigin="anonymous"`.
+
+---
+
+#### I-26 — Templates servem dados como JSON inline (XSS mitigation OK)
+
+**Arquivo:** `templates/dashboard/home.html`, `templates/dashboard/order_360.html`
+**Observação:** Dados do analytics são serializados com `| tojson` e consumidos via `fetch()` — o Jinja2 `tojson` escapa automaticamente, prevenindo XSS. As queries de API são parametrizadas via SQLAlchemy ORM (sem SQL injection).
+**Resultado:** Sem vulnerabilidades XSS ou injection nos templates. **Seguro.**
+
+---
+
+### Análise de Segurança (TASK-008)
+
+| Verificação | Resultado |
+|------------|-----------|
+| SQL injection | ✅ ORM parametrizado em AnalyticsService |
+| XSS em templates | ✅ `tojson` escapa; `fetch()` para dados dinâmicos |
+| Secrets no código | ✅ Nenhum |
+| Validação de entrada | ✅ Pydantic enums (L-17), query params tipados |
+| Erros expõem stack traces | ✅ EntityNotFoundError retorna 404 genérico |
+| CORS | N/A — sem endpoints de dados novos que requeiram CORS |
+| Autenticação | ⚠️ Pendente (TASK-009) |
+| CDN externo | ⚠️ Plotly.js sem SRI (I-25) |
+
+### Novos Testes Adicionados (TASK-008)
+
+- `tests/unit/test_dashboard.py` — 15 testes (8 AnalyticsService + 7 Dashboard API)
+- Atualização em `tests/unit/test_api_production.py::test_health` (nova resposta)
+
+**Total: 158 testes passando (era 143)**
+
+### Arquivos Criados
+- `app/analytics/service.py`
+- `app/api/dashboard.py`
+- `templates/dashboard/base.html`
+- `templates/dashboard/home.html`
+- `templates/dashboard/order_360.html`
+- `tests/unit/test_dashboard.py`
+
+### Arquivos Alterados
+- `app/database/connection.py` — M-09 (rollback em session_dependency)
+- `app/domain/common.py` — L-19 (helper paginate compartilhado)
+- `app/domain/entities.py` — L-09/L-10 (índices status)
+- `app/api/production.py` — L-17 (enum validation), L-19 (paginate shared), M-12 (active filter), M-17 (skip/limit pass-through)
+- `app/api/quality.py` — L-19 (paginate shared), M-17 (skip/limit pass-through)
+- `app/api/costing.py` — L-19 (paginate shared)
+- `app/repositories/production_repository.py` — M-12 (list_all/inactive, count_all/inactive), M-17 (skip/limit), M-18 (joinedload)
+- `app/repositories/quality_repository.py` — M-17 (skip/limit in get_by_inspection)
+- `app/services/production_service.py` — M-12 (active param), L-17 (enum), M-17 (skip/limit)
+- `app/services/quality_service.py` — M-17 (skip/limit)
+- `app/main.py` — I-21 (health DB check), dashboard routers
+- `tests/unit/test_api_production.py` — health test update
+
+### Revalidação de Segurança
+- Thread safety mantida (double-check locking em connection.py)
+- Transactions: session_dependency agora faz rollback automático em exceptions
+- Server defaults e CHECK constraints intactos
+- Nenhuma nova superfície de ataque; Plotly.js via CDN documentado como I-25
+
+### Conclusão
+
+**Estado Geral:** ✅ **BOM** — TASK-008 corrigiu todos os 9 itens de auditoria pendentes (8 de recomendações + 1 extra) e implementou o Dashboard com analytics service, templates Jinja2 + Plotly.js e visão Order 360°.
+
+**Pronto para Produção:** ⚠️ Não — requer TASK-009 para autenticação/autorização (H-01), rate limiting (M-16), transições de estado (M-14/M-15).
+
+**Próxima Tarefa:** TASK-009 — Autenticação/Autorização + Rate Limiting + Máquinas de Estado
+
+---
+
+## Auditoria Consolidada Pós-TASK-008 — Análise Completa
+
+**Data:** 2026-08-12
+**Revisor:** Auditor de Segurança/Qualidade
+**Escopo:** Codebase completo após TASK-008 (158 testes passando)
+
+### Sumário Consolidado
+
+| Severidade | Quantidade |
+|-----------|-----------|
+| CRITICAL | 0 |
+| HIGH | 2 (H-01, H-02) |
+| MEDIUM | 8 (M-14, M-15, M-16, M-19, + 4 corrigidos) |
+| LOW | 6 (L-20, L-21, + 4 corrigidos) |
+| INFO | 4 (I-25, I-26, I-27, I-28) |
+
+**Total: 20 achados**
+
+---
+
+## HIGH
+
+### H-01 — Ausência de Autenticação/Autorização (Persistente desde TASK-001)
+
+**Arquivo:** `app/main.py` e todos os routers
+**Problema:** Todos os endpoints REST (`/api/production/*`, `/api/quality/*`, `/api/costing/*`, `/api/dashboard/*`) estão publicamente acessíveis sem autenticação ou autorização. Qualquer usuário pode criar, modificar ou deletar materiais, ordens, batches, inspeções, cost records.
+
+**Impacto:** Em produção, permitiria manipulação não autorizada de dados industriais críticos, incluindo exclusão de ordens de produção, alteração de receitas, criação de inspeções falsas.
+
+**Correção sugerida:** Implementar autenticação JWT/OAuth2 + roles (admin, operator, viewer) em TASK-009. Proteger endpoints de write (POST/PUT/DELETE) com middleware de autorização.
+
+**Prioridade:** Alta (bloqueante para produção)
+
+---
+
+### H-02 — `update_recipe` sem rollback explícito após modificar relacionamentos
+
+**Arquivo:** `app/services/production_service.py:295-340`
+**Problema:** O método `update_recipe` modifica `recipe.components = []` com `cascade="all, delete-orphan"`, marcando RecipeComponent antigos para deleção. Se `_validate_component()` em seguida lançar exceção (ex: `ComponentUnitMismatchError`), a sessão contém estado "dirty" mas não há rollback explícito dentro do método.
+
+```python
+if data.components is not None:
+    recipe.components = []  # Marca componentes antigos para deleção
+    for component in data.components:
+        self._validate_component(component.component_material_id, component.unit)  # Pode lançar exceção
+        recipe.components.append(...)  # Se exceção, componentes antigos já foram deletados
+```
+
+**Impacto:** Em caso de erro de validação após deleção de componentes, a sessão fica inconsistente. O `session_dependency` faz rollback automático (M-09), mas a operação parcial pode deixar dados corrompidos se o caller não tratar corretamente.
+
+**Correção sugerida:** Envolver operações de atualização em try/except com rollback explícito, ou validar componentes antes de limpar a lista.
+
+**Prioridade:** Alta
+
+**Status TASK-008.1:** ✅ Corrigido — `update_recipe` agora envolve toda a modificação de componentes/operations em try/except com rollback explícito (`app/services/production_service.py:300-355`).
+
+---
+
+## MEDIUM
+
+### M-14 — ProductionOrder sem validação de transição de estado
+
+**Arquivo:** `app/domain/production/recipe.py`, `app/services/production_service.py`
+**Problema:** `ProductionOrderBase` aceita qualquer `ProductionOrderStatus` sem validar transições de estado. Permite ir de `CREATED` direto para `COMPLETED` sem passar por `RELEASED` ou `IN_PROCESS`.
+
+**Impacto:** Viola regras de negócio industriais. Ordens podem pular etapas obrigatórias.
+
+**Correção sugerida:** Implementar máquina de estados no service:
+```python
+VALID_TRANSITIONS = {
+    "CREATED": ["RELEASED"],
+    "RELEASED": ["IN_PROCESS"],
+    "IN_PROCESS": ["COMPLETED", "PARTIAL"],
+    ...
+}
+```
+
+**Prioridade:** Média (afeta fluxo de produção)
+
+---
+
+### M-15 — QualityInspection sem validação de transição de status
+
+**Arquivo:** `app/services/quality_service.py:77-90`, `app/repositories/quality_repository.py:58-75`
+**Problema:** `update_inspection_result()` aceita qualquer `InspectionStatus` sem validar transições. Permite ir de `PASSED` para `PENDING` ou de `FAILED` para `PASSED` sem re-inspeção.
+
+**Impacto:** Viola fluxo de qualidade. Inspeções podem ser manipuladas para bypass de controles.
+
+**Correção sugerida:** Validar transições permitidas no service ou repository.
+
+**Prioridade:** Média
+
+---
+
+### M-16 — Ausência de Rate Limiting
+
+**Arquivo:** `app/main.py`
+**Problema:** Nenhum endpoint possui rate limiting. Vulnerável a ataques de negação de serviço (DoS) ou abuso de API.
+
+**Impacto:** Em produção, um cliente malicioso pode sobrecarregar o servidor.
+
+**Correção sugerida:** Adicionar middleware de rate limiting (ex: `slowapi` ou `fastapi-limiter`).
+
+**Prioridade:** Média (relevante para produção)
+
+---
+
+### M-19 — Import no meio do arquivo `main.py`
+
+**Arquivo:** `app/main.py:34-38`
+**Problema:** Imports do dashboard estão após `app.include_router()` dos outros routers, quebrando convenção PEP 8 (todos os imports no topo).
+
+```python
+app.include_router(costing_router)
+
+from app.api.dashboard import api_router as dashboard_api_router  # ← Import fora do topo
+from app.api.dashboard import router as dashboard_router
+```
+
+**Impacto:** Código menos legível, potencialmente problemático em circular imports.
+
+**Correção sugerida:** Mover imports para o topo do arquivo.
+
+**Prioridade:** Média (qualidade de código)
+
+**Status TASK-008.1:** ✅ Corrigido — Imports do dashboard movidos para o topo de `main.py` junto com os demais routers.
+
+---
+
+## LOW
+
+### L-20 — `list_materials` com filtro `active=None` retorna todos (potencial confusão)
+
+**Arquivo:** `app/api/production.py:35`, `app/services/production_service.py:62-68`
+**Problema:** O parâmetro `active: Optional[bool] = Query(None, ...)` retorna **todos** os materiais (ativos + inativos) quando omitido. O valor padrão é `None`, mas o behavior pode ser contra-intuitivo para usuários que esperam apenas ativos por padrão.
+
+**Impacto:** Baixo — API documentada, mas pode confundir clientes que não leem docs.
+
+**Correção sugerida:** Considerar padrão `active=True` ou documentar claramente no OpenAPI.
+
+**Prioridade:** Baixa
+
+**Status TASK-008.1:** ✅ Corrigido — `active` padrão alterado de `None` para `True`. `GET /materials` sem query param agora retorna apenas ativos, mantendo retrocompatibilidade com o comportamento pré-M-12.
+
+---
+
+### L-21 — `order_360` não carrega recipe components/operations
+
+**Arquivo:** `app/analytics/service.py:216-217`
+**Problema:** `order_360()` carrega `recipe` via `self._session.get()`, mas não faz `joinedload` de `components` e `operations`. Se o template ou API consumir dados de BOM/roteiro, haverá N+1.
+
+**Impacto:** Baixo — dados de recipe não são expostos no Order 360° atual, mas se for estendido, terá problema.
+
+**Correção sugerida:** Adicionar `joinedload` ao carregar recipe, ou documentar que Order 360° não inclui BOM.
+
+**Prioridade:** Baixa
+
+**Status TASK-008.1:** ✅ Corrigido — `order_360()` agora carrega recipe com `joinedload(ProductionRecipe.components, ProductionRecipe.operations)`, eliminando futuros N+1 quando o BOM/roteiro for exposto.
+
+---
+
+## INFO
+
+### I-27 — `AnalyticsService` sem commit/rollback
+
+**Arquivo:** `app/analytics/service.py`
+**Observação:** O `AnalyticsService` apenas lê dados (SELECT). Não há operações de escrita, então não precisa de commit/rollback. Todos os métodos são read-only.
+
+**Resultado:** ✅ Correto — service de leitura não precisa gerenciar transações.
+
+---
+
+### I-28 — `recent_orders` em `production_stats` sem join material/recipe
+
+**Arquivo:** `app/analytics/service.py:127-133`
+**Observação:** A query de `recent_orders` não faz `joinedload` de `material` e `recipe`. Se o cliente precisar desses dados, haverá N+1.
+
+**Impacto:** Baixo — dados de material/recipe não são expostos no `production_stats` atual.
+
+**Ação futura:** Adicionar `joinedload` se necessário, ou documentar que `production_stats` não inclui detalhes de material.
+
+---
+
+## Análise de Segurança Consolidada (Pós-TASK-008)
+
+### ✅ Pontos Positivos
+
+| Verificação | Resultado |
+|------------|-----------|
+| SQL injection | ✅ ORM parametrizado em todos os repositories e AnalyticsService |
+| Validação de entrada | ✅ Pydantic (Field, enums, ranges, Decimal constraints) |
+| Stack traces em erros | ✅ Erros de domínio traduzidos (404/409/422) |
+| Logs sem dados sensíveis | ✅ Apenas códigos (material_code, order_number) |
+| CHECK constraints no DB | ✅ Enums validados no DB |
+| Transaction boundaries | ✅ Services gerenciam commit/rollback |
+| Thread safety | ✅ Double-check locking em connection.py |
+| Cascade delete (Recipe→BOM) | ✅ `ProductionRecipe.components/operations` com `delete-orphan` |
+| Paginação real (M-17) | ✅ skip/limit em sub-endpoints |
+| N+1 queries (M-18) | ✅ joinedload em list_orders/list_recipes |
+| Rollback automático (M-09) | ✅ session_dependency com rollback em exceptions |
+| XSS em templates | ✅ `tojson` escapa; `fetch()` para dados dinâmicos |
+| Secrets no código | ✅ Nenhum |
+| .env no .gitignore | ✅ Excluído |
+| .env.example sem credenciais | ✅ Placeholders usados |
+
+### ⚠️ Vulnerabilidades Identificadas
+
+| Categoria | Severidade | Descrição |
+|-----------|-----------|-----------|
+| Autenticação | HIGH | Nenhum endpoint requer autenticação (H-01) |
+| Autorização | HIGH | Nenhum controle de acesso baseado em roles |
+| Rate limiting | MEDIUM | Vulnerável a DoS (M-16) |
+| Business rules | MEDIUM | Sem validação de transições de estado (M-14, M-15) |
+| Transaction safety | MEDIUM | `update_recipe` sem rollback explícito (H-02) |
+| CORS | INFO | Não configurado (esperado para TASK-009) |
+| HTTPS | INFO | Não forçado (depende de reverse proxy) |
+| CDN externo | INFO | Plotly.js sem SRI (I-25) |
+
+---
+
+## Análise de Performance (Pós-TASK-008)
+
+| Verificação | Resultado |
+|------------|-----------|
+| N+1 queries | ✅ Resolvido com `joinedload` em `get_all()` |
+| Índices | ✅ Presentes em `status` (orders, inspections), `material_code`, `order_number`, `inspection_lot`, `batch_number`, `resource_code`, `recipe_code` |
+| Paginação | ✅ Implementada com `offset/limit` em todos os endpoints de listagem |
+| Contagem eficiente | ✅ `func.count()` usado (O(1) memória) |
+| Connection pooling | ✅ Configurado via `DB_POOL_SIZE`, `DB_MAX_OVERFLOW` |
+| Cache | ⚠️ Não implementado (pode ser adicionado posteriormente) |
+
+**Resultado:** ✅ Performance otimizada. M-17 e M-18 corrigidos.
+
+---
+
+## Análise de Testes (Pós-TASK-008)
+
+**Cobertura Atual:**
+- 158 testes passando (era 143)
+- Cobre: Materials, Production Orders, Batches, Resources, Quality Inspections, Non-Conformities, Recipes CRUD, CostRecords API, resumo CO, L-13 recipe em Order, paginação (envelope), AnalyticsService, Dashboard API
+- Novos: `test_dashboard.py` (15 testes: 8 AnalyticsService + 7 Dashboard API)
+
+**Testes Ausentes (atualizados):**
+1. Transições de estado (ProductionOrder, QualityInspection) — reservado para M-14/M-15 em TASK-009
+2. Concorrência (dois clientes criando mesma entidade)
+3. Performance N+1 (M-18) — requer integração com DB real para verificar query count
+4. Rate limiting (quando implementado) — TASK-009
+5. Autenticação/autorização (quando implementado) — TASK-009
+6. `update_recipe` com rollback após exceção (H-02)
+
+---
+
+## Recomendações Prioritárias
+
+### Para TASK-009 (Autenticação/Autorização)
+
+1. **H-01** — Implementar autenticação/autorização (bloqueante para produção)
+2. **M-14/M-15** — Implementar máquinas de estado para ordens e inspeções
+3. **M-16** — Adicionar rate limiting
+4. **H-02** — Adicionar rollback explícito em `update_recipe` ou validar antes de deletar
+5. **I-25** — Adicionar SRI hash ao Plotly.js ou servir localmente
+6. **M-19** — Mover imports do dashboard para o topo de `main.py`
+7. **L-20** — Documentar ou alterar padrão de `active=None` para `active=True`
+8. **L-21** — Adicionar `joinedload` em `order_360()` se BOM/roteiro for exposto
+
+---
+
+## Conclusão Final (Pós-TASK-008.1)
+
+**Estado Geral:** ✅ **BOM** — TASK-008 corrigiu 8 itens de auditoria pendentes + TASK-008.1 corrigiu mais 5 (H-02, M-19, L-20, L-21, I-25). Dashboard funcional com analytics, templates Jinja2 + Plotly.js, Order 360°.
+
+**Correções TASK-008.1:**
+| Item | Severidade | Status | Correção |
+|------|-----------|--------|----------|
+| H-02 update_recipe sem rollback | HIGH | ✅ | try/except com rollback explícito |
+| M-19 imports no meio do main.py | MEDIUM | ✅ | Imports movidos para o topo |
+| L-20 active=None confuso | LOW | ✅ | Padrão alterado para active=True |
+| L-21 order_360 sem BOM | LOW | ✅ | joinedload em recipe components/operations |
+| I-25 Plotly.js sem SRI | INFO | ✅ | SRI hash + crossorigin="anonymous" |
+
+**Achados Restantes:** 0 CRITICAL, 1 HIGH (H-01 auth), 3 MEDIUM (M-14/M-15/M-16), 0 LOW, 2 INFO (I-27/I-28).
+
+**Pronto para Produção:** ⚠️ Não — requer TASK-009 para autenticação (H-01), rate limiting (M-16), transições de estado (M-14/M-15).
+
+**Segurança:** ✅ Todas as vulnerabilidades corrigíveis resolvidas. Autenticação permanece bloqueante.
+
+**Performance:** ✅ Otimizada. N+1 resolvido com `joinedload` em todos os pontos críticos.
+
+**Testes:** ✅ 158 testes passando.
+
+**Risco de Segurança:** ⚠️ Médio — apenas H-01 (autenticação) permanece como bloqueante para produção.
+
+**Recomendação Final:** Prosseguir com TASK-009 (Autenticação/Autorização + Rate Limiting + Máquinas de Estado).

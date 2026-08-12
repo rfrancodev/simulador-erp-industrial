@@ -1,12 +1,10 @@
 """REST API router for QM — Quality Management domain."""
 
-from typing import TypeVar
-
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
 from app.database.connection import session_dependency
-from app.domain.common import PaginatedResponse
+from app.domain.common import PaginatedResponse, paginate
 from app.domain.quality.inspection import (
     NonConformity,
     NonConformityCreate,
@@ -18,20 +16,9 @@ from app.services.quality_service import QualityService
 
 router = APIRouter(prefix="/api/quality", tags=["QM"])
 
-T = TypeVar("T")
-
 
 def _svc(session: Session = Depends(session_dependency)) -> QualityService:
     return QualityService(session)
-
-
-def _paginate(items: list[T], total: int, skip: int, limit: int) -> PaginatedResponse[T]:
-    return PaginatedResponse(
-        items=items,
-        total=total,
-        page=skip // limit + 1 if limit > 0 else 1,
-        page_size=limit,
-    )
 
 
 # ── Quality Inspections ────────────────────────────────────────────────────
@@ -42,7 +29,7 @@ def list_inspections(
     limit: int = Query(100, ge=1, le=500),
     svc: QualityService = Depends(_svc),
 ):
-    return _paginate(
+    return paginate(
         svc.list_inspections(skip, limit), svc.inspections.count(), skip, limit
     )
 
@@ -83,8 +70,8 @@ def list_non_conformities(
     limit: int = Query(100, ge=1, le=500),
     svc: QualityService = Depends(_svc),
 ):
-    return _paginate(
-        svc.list_non_conformities(id),
+    return paginate(
+        svc.list_non_conformities(id, skip, limit),
         svc.non_conformities.count_by_inspection(id),
         skip,
         limit,

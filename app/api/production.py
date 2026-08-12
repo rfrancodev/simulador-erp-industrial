@@ -1,17 +1,18 @@
 """REST API router for PP-PI — Production domain."""
 
-from typing import TypeVar
+from typing import Optional
 
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
 from app.database.connection import session_dependency
-from app.domain.common import PaginatedResponse
+from app.domain.common import PaginatedResponse, paginate
 from app.domain.production.batch import Batch, BatchCreate, ProductionResource, ProductionResourceCreate
 from app.domain.production.material import Material, MaterialCreate, MaterialUpdate
 from app.domain.production.recipe import (
     ProductionOrder,
     ProductionOrderCreate,
+    ProductionOrderStatus,
     ProductionRecipe,
     ProductionRecipeCreate,
     ProductionRecipeUpdate,
@@ -20,20 +21,9 @@ from app.services.production_service import ProductionService
 
 router = APIRouter(prefix="/api/production", tags=["PP-PI"])
 
-T = TypeVar("T")
-
 
 def _svc(session: Session = Depends(session_dependency)) -> ProductionService:
     return ProductionService(session)
-
-
-def _paginate(items: list[T], total: int, skip: int, limit: int) -> PaginatedResponse[T]:
-    return PaginatedResponse(
-        items=items,
-        total=total,
-        page=skip // limit + 1 if limit > 0 else 1,
-        page_size=limit,
-    )
 
 
 # ── Materials ────────────────────────────────────────────────────────────
@@ -42,11 +32,17 @@ def _paginate(items: list[T], total: int, skip: int, limit: int) -> PaginatedRes
 def list_materials(
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=500),
+    active: Optional[bool] = Query(True, description="Filter by active status: true, false, or omit for active only"),
     svc: ProductionService = Depends(_svc),
 ):
-    return _paginate(
-        svc.list_materials(skip, limit), svc.materials.count_active(), skip, limit
-    )
+    materials = svc.list_materials(skip, limit, active=active)
+    if active is True:
+        total = svc.materials.count_active()
+    elif active is False:
+        total = svc.materials.count_inactive()
+    else:
+        total = svc.materials.count_all()
+    return paginate(materials, total, skip, limit)
 
 
 @router.get("/materials/{id}", response_model=Material)
@@ -77,7 +73,7 @@ def list_orders(
     limit: int = Query(100, ge=1, le=500),
     svc: ProductionService = Depends(_svc),
 ):
-    return _paginate(
+    return paginate(
         svc.list_orders(skip, limit), svc.orders.count(), skip, limit
     )
 
@@ -94,14 +90,14 @@ def get_order_by_number(order_number: str, svc: ProductionService = Depends(_svc
 
 @router.get("/orders/status/{status}", response_model=PaginatedResponse[ProductionOrder])
 def list_orders_by_status(
-    status: str,
+    status: ProductionOrderStatus,
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=500),
     svc: ProductionService = Depends(_svc),
 ):
-    return _paginate(
+    return paginate(
         svc.list_orders_by_status(status, skip, limit),
-        svc.orders.count_by_status(status),
+        svc.orders.count_by_status(status.value),
         skip,
         limit,
     )
@@ -121,8 +117,8 @@ def list_batches_by_order(
     limit: int = Query(100, ge=1, le=500),
     svc: ProductionService = Depends(_svc),
 ):
-    return _paginate(
-        svc.list_batches_by_order(order_id),
+    return paginate(
+        svc.list_batches_by_order(order_id, skip, limit),
         svc.batches.count_by_order(order_id),
         skip,
         limit,
@@ -147,7 +143,7 @@ def list_resources(
     limit: int = Query(100, ge=1, le=500),
     svc: ProductionService = Depends(_svc),
 ):
-    return _paginate(
+    return paginate(
         svc.list_resources(skip, limit), svc.resources.count(), skip, limit
     )
 
@@ -169,8 +165,8 @@ def list_resources_by_work_center(
     limit: int = Query(100, ge=1, le=500),
     svc: ProductionService = Depends(_svc),
 ):
-    return _paginate(
-        svc.list_resources_by_work_center(work_center),
+    return paginate(
+        svc.list_resources_by_work_center(work_center, skip, limit),
         svc.resources.count_by_work_center(work_center),
         skip,
         limit,
@@ -190,7 +186,7 @@ def list_recipes(
     limit: int = Query(100, ge=1, le=500),
     svc: ProductionService = Depends(_svc),
 ):
-    return _paginate(
+    return paginate(
         svc.list_recipes(skip, limit), svc.recipes.count(), skip, limit
     )
 
@@ -212,8 +208,8 @@ def list_active_recipes_for_material(
     limit: int = Query(100, ge=1, le=500),
     svc: ProductionService = Depends(_svc),
 ):
-    return _paginate(
-        svc.list_active_recipes_for_material(material_id),
+    return paginate(
+        svc.list_active_recipes_for_material(material_id, skip, limit),
         svc.recipes.count_active_for_material(material_id),
         skip,
         limit,

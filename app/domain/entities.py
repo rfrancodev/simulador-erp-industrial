@@ -125,7 +125,7 @@ class ProductionOrder(Base):
     planned_end: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     actual_start: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     actual_end: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
-    status: Mapped[str] = mapped_column(String(20), nullable=False, default="CREATED", server_default=text("'CREATED'"))
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="CREATED", server_default=text("'CREATED'"), index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, server_default=func.now())
 
     material: Mapped["Material"] = relationship(back_populates="production_orders")
@@ -203,7 +203,7 @@ class QualityInspection(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     batch_id: Mapped[int] = mapped_column(ForeignKey("batches.id"), nullable=False, unique=True)
     inspection_lot: Mapped[str] = mapped_column(String(16), unique=True, nullable=False, index=True)
-    inspection_status: Mapped[str] = mapped_column(String(20), nullable=False, default="PENDING", server_default=text("'PENDING'"))
+    inspection_status: Mapped[str] = mapped_column(String(20), nullable=False, default="PENDING", server_default=text("'PENDING'"), index=True)
     pH: Mapped[Optional[Decimal]] = mapped_column(Numeric(3, 2), nullable=True)
     alcohol_percent: Mapped[Optional[Decimal]] = mapped_column(Numeric(3, 1), nullable=True)
     temperature: Mapped[Optional[Decimal]] = mapped_column(Numeric(5, 1), nullable=True)

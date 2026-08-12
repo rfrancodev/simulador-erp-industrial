@@ -1,0 +1,82 @@
+{% extends "dashboard/base.html" %}
+{% block content %}
+<h1>Dashboard Executivo</h1>
+
+<div class="kpi-row">
+    <div class="kpi-card">
+        <div class="label">Production Volume</div>
+        <div class="value">{{ "%.0f"|format(kpis.production.total_volume_liters) }} L</div>
+        <div class="sub">{{ kpis.production.active_orders }} active orders</div>
+    </div>
+    <div class="kpi-card">
+        <div class="label">Quality Pass Rate</div>
+        <div class="value">{{ kpis.quality.pass_rate }}%</div>
+        <div class="sub">{{ kpis.quality.passed }}/{{ kpis.quality.total_inspections }} inspections passed</div>
+    </div>
+    <div class="kpi-card">
+        <div class="label">Total Cost</div>
+        <div class="value">{{ "R$ %.0f"|format(kpis.cost.total_planned_cost) }}</div>
+        <div class="sub">{{ kpis.cost.records_with_actual }} records with actuals</div>
+    </div>
+    <div class="kpi-card">
+        <div class="label">Orders Completed</div>
+        <div class="value">{{ kpis.orders.completion_rate }}%</div>
+        <div class="sub">{{ kpis.orders.completed_orders }}/{{ kpis.orders.total_orders }} orders</div>
+    </div>
+    <div class="kpi-card">
+        <div class="label">Scrap Rate</div>
+        <div class="value {{ 'negative' if kpis.quality.scrap_rate > 5 else '' }}">{{ kpis.quality.scrap_rate }}%</div>
+        <div class="sub">{{ kpis.quality.non_conformities }} non-conformities</div>
+    </div>
+    <div class="kpi-card">
+        <div class="label">Cost Variance</div>
+        <div class="value {{ 'positive' if kpis.cost.variance_percent <= 0 else 'negative' }}">{{ "%+.1f"|format(kpis.cost.variance_percent) }}%</div>
+        <div class="sub">{{ "R$ %+.0f"|format(kpis.cost.variance) }}</div>
+    </div>
+</div>
+
+<div class="chart-row">
+    <div class="chart-card">
+        <h2>Order Status Distribution</h2>
+        <div id="chart-orders"></div>
+    </div>
+    <div class="chart-card">
+        <h2>Inspection Status Distribution</h2>
+        <div id="chart-inspections"></div>
+    </div>
+</div>
+
+<div class="chart-row">
+    <div class="chart-card full-width">
+        <h2>Cost Variance by Order (Planned vs Actual)</h2>
+        <div id="chart-variance"></div>
+    </div>
+</div>
+
+<script>
+    const orderData = {{ order_dist | tojson }};
+    const inspData = {{ inspection_dist | tojson }};
+    const varianceData = {{ cost_variance | tojson }};
+
+    Plotly.newPlot('chart-orders', [{
+        type: 'pie',
+        labels: orderData.map(d => d.status),
+        values: orderData.map(d => d.count),
+        hole: 0.4,
+        marker: { colors: ['#3182ce', '#38a169', '#d69e2e', '#e53e3e', '#805ad5', '#718096', '#dd6b20'] }
+    }], { margin: { t: 0, b: 0 } });
+
+    Plotly.newPlot('chart-inspections', [{
+        type: 'pie',
+        labels: inspData.map(d => d.status),
+        values: inspData.map(d => d.count),
+        hole: 0.4,
+        marker: { colors: ['#38a169', '#e53e3e', '#3182ce', '#d69e2e'] }
+    }], { margin: { t: 0, b: 0 } });
+
+    Plotly.newPlot('chart-variance', [
+        { type: 'bar', name: 'Planned', x: varianceData.map(d => d.order), y: varianceData.map(d => d.planned), marker: { color: '#a0aec0' } },
+        { type: 'bar', name: 'Actual', x: varianceData.map(d => d.order), y: varianceData.map(d => d.actual), marker: { color: '#3182ce' } }
+    ], { barmode: 'group', margin: { t: 0 } });
+</script>
+{% endblock %}

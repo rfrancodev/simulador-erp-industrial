@@ -79,8 +79,13 @@ class NonConformityRepository(BaseRepository[NonConformity]):
     def __init__(self, session: Session):
         super().__init__(NonConformity, session)
 
-    def get_by_inspection(self, inspection_id: int) -> list[NonConformity]:
-        stmt = select(NonConformity).where(NonConformity.inspection_id == inspection_id)
+    def get_by_inspection(self, inspection_id: int, skip: int = 0, limit: int = 100) -> list[NonConformity]:
+        stmt = (
+            select(NonConformity)
+            .where(NonConformity.inspection_id == inspection_id)
+            .offset(skip)
+            .limit(limit)
+        )
         return list(self._session.execute(stmt).scalars().all())
 
     def count_by_inspection(self, inspection_id: int) -> int:

@@ -305,7 +305,56 @@ Evitar tarefas gigantes como "Implementar todo o módulo PP-PI."
 
 ---
 
-## 8. Princípio central
+## 8. Histórico de Tarefas
+
+### TASK-001/002 — Estrutura base + Domínio PP-PI
+**Status:** DONE
+- Estrutura de diretórios, FastAPI app, configuração de projeto
+- Entities, schemas Pydantic, repositories, testes unitários
+
+### TASK-003 — Correções Pós-Auditoria
+**Status:** DONE
+- 16/17 itens corrigidos: count() no DB, CHECK constraints, validação material/recipe,
+  whitelist, model_validator, dependências, utcnow→UTC, testes, logging, exceptions, etc.
+- 56 testes (era 23)
+
+### TASK-004 — Database Connection + Alembic
+**Status:** DONE
+- `connection.py` com thread safety (double-check locking), pool config, session_scope
+- Migração inicial Alembic, server defaults, render_as_batch SQLite
+- 12/12 itens de auditoria corrigidos. 57 testes
+
+### TASK-005 — REST API Endpoints PP-PI
+**Status:** DONE
+- CRUD endpoints: Materials, ProductionOrders, Batches, Resources
+- ProductionService com transações, validação Pydantic, erros de domínio
+- Nenhum item de segurança encontrado
+
+### TASK-006 — QM Service + REST API Endpoints
+**Status:** DONE
+- QualityInspection, NonConformity endpoints
+- Whitelist de campos mutáveis, validação de enums
+- Nenhum item de segurança encontrado. 113 testes (auditoria consolidada)
+
+### TASK-007 — CO Service + Recipes API + Paginação
+**Status:** DONE
+- CostRecord CRUD, CostSummary, Recipes CRUD com BOM e roteiro
+- PaginatedResponse genérico, validação ComponentUnitMismatch
+- 2 MEDIUM, 3 LOW encontrados na auditoria. 143 testes
+
+### TASK-008 — Dashboard + Correções de Performance
+**Status:** DONE
+- M-09, M-12, M-17, M-18, L-09/L-10, L-17, L-19, I-21 (8 itens de auditoria)
+- Dashboard: AnalyticsService com 8 métodos de agregação
+- Templates Jinja2 + Plotly.js: home executivo + Order 360°
+- 5 endpoints de dados + 2 páginas HTML
+- 158 testes (era 143). 0 CRITICAL, 0 HIGH, 0 MEDIUM, 0 LOW, 2 INFO
+
+### Próxima: TASK-009 — Autenticação/Autorização + Rate Limiting + Máquinas de Estado
+
+---
+
+## 9. Princípio central
 
 O projeto deve evoluir de forma incremental:
 

@@ -461,4 +461,5 @@ class TestRecipesApi:
 def test_health(client: TestClient):
     resp = client.get("/health")
     assert resp.status_code == 200
-    assert resp.json() == {"status": "ok"}
+    assert resp.json()["status"] == "ok"
+    assert "database" in resp.json()

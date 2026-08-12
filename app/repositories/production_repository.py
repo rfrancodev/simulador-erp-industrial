@@ -75,14 +75,42 @@ class MaterialRepository(BaseRepository[Material]):
         stmt = select(Material).where(Material.is_active == True).offset(skip).limit(limit)
         return list(self._session.execute(stmt).scalars().all())
 
+    def list_all(self, skip: int = 0, limit: int = 100) -> list[Material]:
+        stmt = select(Material).offset(skip).limit(limit)
+        return list(self._session.execute(stmt).scalars().all())
+
+    def list_inactive(self, skip: int = 0, limit: int = 100) -> list[Material]:
+        stmt = select(Material).where(Material.is_active == False).offset(skip).limit(limit)
+        return list(self._session.execute(stmt).scalars().all())
+
     def count_active(self) -> int:
         stmt = select(func.count()).select_from(Material).where(Material.is_active == True)
+        return self._session.scalar(stmt) or 0
+
+    def count_all(self) -> int:
+        stmt = select(func.count()).select_from(Material)
+        return self._session.scalar(stmt) or 0
+
+    def count_inactive(self) -> int:
+        stmt = select(func.count()).select_from(Material).where(Material.is_active == False)
         return self._session.scalar(stmt) or 0
 
 
 class ProductionOrderRepository(BaseRepository[ProductionOrder]):
     def __init__(self, session: Session):
         super().__init__(ProductionOrder, session)
+
+    def get_all(self, skip: int = 0, limit: int = 100) -> list[ProductionOrder]:
+        stmt = (
+            select(ProductionOrder)
+            .options(
+                joinedload(ProductionOrder.material),
+                joinedload(ProductionOrder.recipe),
+            )
+            .offset(skip)
+            .limit(limit)
+        )
+        return list(self._session.execute(stmt).unique().scalars().all())
 
     def get_by_number(self, order_number: str) -> ProductionOrder | None:
         stmt = select(ProductionOrder).where(ProductionOrder.order_number == order_number)
@@ -121,8 +149,13 @@ class BatchRepository(BaseRepository[Batch]):
         stmt = select(Batch).where(Batch.batch_number == batch_number)
         return self._session.execute(stmt).scalar_one_or_none()
 
-    def get_by_order(self, order_id: int) -> list[Batch]:
-        stmt = select(Batch).where(Batch.production_order_id == order_id)
+    def get_by_order(self, order_id: int, skip: int = 0, limit: int = 100) -> list[Batch]:
+        stmt = (
+            select(Batch)
+            .where(Batch.production_order_id == order_id)
+            .offset(skip)
+            .limit(limit)
+        )
         return list(self._session.execute(stmt).scalars().all())
 
     def count_by_order(self, order_id: int) -> int:
@@ -138,14 +171,28 @@ class ProductionRecipeRepository(BaseRepository[ProductionRecipe]):
     def __init__(self, session: Session):
         super().__init__(ProductionRecipe, session)
 
+    def get_all(self, skip: int = 0, limit: int = 100) -> list[ProductionRecipe]:
+        stmt = (
+            select(ProductionRecipe)
+            .options(
+                joinedload(ProductionRecipe.components),
+                joinedload(ProductionRecipe.operations),
+            )
+            .offset(skip)
+            .limit(limit)
+        )
+        return list(self._session.execute(stmt).unique().scalars().all())
+
     def get_by_code(self, code: str) -> ProductionRecipe | None:
         stmt = select(ProductionRecipe).where(ProductionRecipe.recipe_code == code)
         return self._session.execute(stmt).scalar_one_or_none()
 
-    def get_active_for_material(self, material_id: int) -> list[ProductionRecipe]:
+    def get_active_for_material(self, material_id: int, skip: int = 0, limit: int = 100) -> list[ProductionRecipe]:
         stmt = (
             select(ProductionRecipe)
             .where(ProductionRecipe.material_id == material_id, ProductionRecipe.is_active == True)
+            .offset(skip)
+            .limit(limit)
         )
         return list(self._session.execute(stmt).scalars().all())
 
@@ -166,8 +213,13 @@ class ProductionResourceRepository(BaseRepository[ProductionResource]):
         stmt = select(ProductionResource).where(ProductionResource.resource_code == code)
         return self._session.execute(stmt).scalar_one_or_none()
 
-    def get_by_work_center(self, work_center: str) -> list[ProductionResource]:
-        stmt = select(ProductionResource).where(ProductionResource.work_center == work_center)
+    def get_by_work_center(self, work_center: str, skip: int = 0, limit: int = 100) -> list[ProductionResource]:
+        stmt = (
+            select(ProductionResource)
+            .where(ProductionResource.work_center == work_center)
+            .offset(skip)
+            .limit(limit)
+        )
         return list(self._session.execute(stmt).scalars().all())
 
     def count_by_work_center(self, work_center: str) -> int:

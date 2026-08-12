@@ -59,8 +59,13 @@ class ProductionService:
 
     # ── Materials ──────────────────────────────────────────────────────
 
-    def list_materials(self, skip: int = 0, limit: int = 100) -> list[Material]:
-        return self.materials.list_active(skip, limit)
+    def list_materials(self, skip: int = 0, limit: int = 100, active: bool | None = True) -> list[Material]:
+        if active is True:
+            return self.materials.list_active(skip, limit)
+        elif active is False:
+            return self.materials.list_inactive(skip, limit)
+        else:
+            return self.materials.list_all(skip, limit)
 
     def get_material(self, id: int) -> Material:
         material = self.materials.get_by_id(id)
@@ -112,8 +117,8 @@ class ProductionService:
             raise EntityNotFoundError("ProductionOrder", order_number)
         return order
 
-    def list_orders_by_status(self, status: str, skip: int = 0, limit: int = 100) -> list[ProductionOrder]:
-        return self.orders.get_by_status(status, skip, limit)
+    def list_orders_by_status(self, status: ProductionOrderStatus, skip: int = 0, limit: int = 100) -> list[ProductionOrder]:
+        return self.orders.get_by_status(status.value, skip, limit)
 
     def create_production_order(self, data: ProductionOrderCreate) -> ProductionOrder:
         material = self.materials.get_by_id(data.material_id)
@@ -150,10 +155,10 @@ class ProductionService:
 
     # ── Batches ────────────────────────────────────────────────────────
 
-    def list_batches_by_order(self, order_id: int) -> list[Batch]:
+    def list_batches_by_order(self, order_id: int, skip: int = 0, limit: int = 100) -> list[Batch]:
         if self.orders.get_by_id(order_id) is None:
             raise EntityNotFoundError("ProductionOrder", order_id)
-        return self.batches.get_by_order(order_id)
+        return self.batches.get_by_order(order_id, skip, limit)
 
     def get_batch_by_number(self, batch_number: str) -> Batch:
         batch = self.batches.get_by_number(batch_number)
@@ -200,8 +205,8 @@ class ProductionService:
             raise EntityNotFoundError("ProductionResource", code)
         return resource
 
-    def list_resources_by_work_center(self, work_center: str) -> list[ProductionResource]:
-        return self.resources.get_by_work_center(work_center)
+    def list_resources_by_work_center(self, work_center: str, skip: int = 0, limit: int = 100) -> list[ProductionResource]:
+        return self.resources.get_by_work_center(work_center, skip, limit)
 
     def create_resource(self, data: ProductionResourceCreate) -> ProductionResource:
         resource = ProductionResource(
@@ -236,8 +241,8 @@ class ProductionService:
             raise EntityNotFoundError("ProductionRecipe", code)
         return recipe
 
-    def list_active_recipes_for_material(self, material_id: int) -> list[ProductionRecipe]:
-        return self.recipes.get_active_for_material(material_id)
+    def list_active_recipes_for_material(self, material_id: int, skip: int = 0, limit: int = 100) -> list[ProductionRecipe]:
+        return self.recipes.get_active_for_material(material_id, skip, limit)
 
     def _validate_component(
         self, material_id: int, unit: str
@@ -306,36 +311,41 @@ class ProductionService:
             if material is None or not material.is_active:
                 raise EntityNotFoundError("Material", update_data["material_id"])
 
-        if data.components is not None:
-            recipe.components = []
-            for component in data.components:
-                self._validate_component(component.component_material_id, component.unit)
-                recipe.components.append(
-                    RecipeComponent(
-                        component_material_id=component.component_material_id,
-                        quantity=component.quantity,
-                        unit=component.unit,
+        try:
+            if data.components is not None:
+                recipe.components = []
+                for component in data.components:
+                    self._validate_component(component.component_material_id, component.unit)
+                    recipe.components.append(
+                        RecipeComponent(
+                            component_material_id=component.component_material_id,
+                            quantity=component.quantity,
+                            unit=component.unit,
+                        )
                     )
-                )
 
-        if data.operations is not None:
-            recipe.operations = []
-            for operation in data.operations:
-                recipe.operations.append(
-                    RecipeOperation(
-                        sequence=operation.sequence,
-                        work_center=operation.work_center,
-                        operation_description=operation.operation_description,
-                        standard_time_minutes=operation.standard_time_minutes,
+            if data.operations is not None:
+                recipe.operations = []
+                for operation in data.operations:
+                    recipe.operations.append(
+                        RecipeOperation(
+                            sequence=operation.sequence,
+                            work_center=operation.work_center,
+                            operation_description=operation.operation_description,
+                            standard_time_minutes=operation.standard_time_minutes,
+                        )
                     )
-                )
 
-        for key, value in update_data.items():
-            if key in ("components", "operations"):
-                continue
-            setattr(recipe, key, value)
+            for key, value in update_data.items():
+                if key in ("components", "operations"):
+                    continue
+                setattr(recipe, key, value)
 
-        self._session.commit()
+            self._session.commit()
+        except Exception:
+            self._session.rollback()
+            raise
+
         logger.info("Production recipe %s updated", recipe.recipe_code)
         return recipe
 

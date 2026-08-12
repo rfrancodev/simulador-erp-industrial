@@ -4,6 +4,147 @@ This file documents the completion of each task, serving as the source of truth 
 
 ---
 
+## TASK-008.1 — Correções Pós-Auditoria (H-02, M-19, L-20, L-21, I-25)
+
+**Status:** DONE
+
+**Data:** 2026-08-12
+
+**IMPLEMENTADO:**
+- **H-02:** `update_recipe` agora envolve toda a modificação de components/operations em try/except com `rollback()` explícito
+- **M-19:** Imports do dashboard movidos para o topo de `main.py` (PEP 8)
+- **L-20:** `list_materials` padrão `active=True` em vez de `active=None` (retrocompatível com comportamento pré-M-12)
+- **L-21:** `order_360()` carrega recipe com `joinedload(components, operations)`, evitando N+1 futuros
+- **I-25:** Plotly.js CDN com SRI hash `sha384-OLBgp1GsljhM2TJ+sbHjaiH9txEUvgdDTAzHv2P24donTt6/529l+9Ua0vFImLlb` + `crossorigin="anonymous"`
+
+**ARQUIVOS ALTERADOS:**
+- `app/services/production_service.py` — try/except + rollback em `update_recipe`
+- `app/main.py` — imports do dashboard no topo
+- `app/api/production.py` — `active=True` default
+- `app/analytics/service.py` — `joinedload` no `order_360`
+- `templates/dashboard/base.html` — SRI hash
+- `auditoria.md` — status corrigido para todos os 5 itens
+
+**TESTES:**
+```
+158 passed in 5.55s
+```
+- `python -m compileall app` → OK
+- `npm run typecheck` → OK
+- `npm run lint` → OK
+
+**AUTO REVIEW:**
+- Todas as correções são minimamente invasivas
+- H-02: padrão try/except usado em outros métodos do service (consistente)
+- M-19: imports no topo seguem PEP 8
+- L-20: comportamento padrão restaurado (pré-M-12)
+- L-21: `joinedload` segue padrão existente em `get_with_material()` e `get_all()`
+
+**SECURITY AUDIT:**
+- H-02: rollback explícito previne dados inconsistentes em caso de exceção
+- I-25: SRI hash verificado via `openssl dgst -sha384` contra CDN
+- Sem novas superfícies de ataque
+
+**PENDÊNCIAS:**
+- H-01: Autenticação/Autorização (TASK-009)
+- M-14/M-15: Máquinas de estado para ProductionOrder e QualityInspection (TASK-009)
+- M-16: Rate limiting (TASK-009)
+
+**PRÓXIMA TAREFA:**
+TASK-009 — Autenticação/Autorização + Rate Limiting + Máquinas de Estado
+
+---
+
+## TASK-008 — Dashboard + Correções de Performance (M-09, M-12, M-17, M-18, L-09/L-10, L-17, L-19, I-21)
+
+**Status:** DONE
+
+**Data:** 2026-08-12
+
+**IMPLEMENTADO:**
+- **M-09:** `session_dependency()` com rollback automático (captura Exception, faz rollback, re-lança)
+- **M-12:** `GET /materials?active=true|false|<omit>` — filtro de status ativo/inativo/todos
+- **M-17:** Paginação real (skip/limit) em 4 sub-endpoints: batches/order, resources/work-center, recipes/material, inspections/non-conformities
+- **M-18:** `joinedload` em `ProductionOrderRepository.get_all()` (material+recipe) e `ProductionRecipeRepository.get_all()` (components+operations) — elimina N+1
+- **L-09/L-10:** `index=True` em `ProductionOrder.status` e `QualityInspection.inspection_status`
+- **L-17:** `list_orders_by_status` path param tipado como `ProductionOrderStatus` enum (validação automática 422)
+- **L-19:** Helper `paginate()` extraído para `app/domain/common.py` e reutilizado nos 3 routers
+- **I-21:** `GET /health` executa `SELECT 1` e retorna `{"status":"ok","database":"connected"}` ou 503
+- **Dashboard:**
+  - `app/analytics/service.py` — `AnalyticsService` com 8 métodos: `executive_kpis()`, `production_stats()`, `quality_stats()`, `cost_stats()`, `order_360()`, `order_status_distribution()`, `inspection_status_distribution()`, `cost_variance_by_order()`
+  - `templates/dashboard/base.html` — Layout base com nav, CSS responsivo
+  - `templates/dashboard/home.html` — Dashboard executivo com 6 KPIs + 3 gráficos Plotly (pie orders, pie inspections, bar variance)
+  - `templates/dashboard/order_360.html` — Visão integrada PP-PI + QM + CO para uma Production Order
+  - `app/api/dashboard.py` — 2 page endpoints (`/dashboard/`, `/dashboard/order-360`) + 5 data API endpoints
+- `app/domain/common.py` — `PaginatedResponse[T]` genérico + `paginate()` helper (L-19)
+
+**ARQUIVOS CRIADOS:**
+- `app/analytics/service.py`
+- `app/api/dashboard.py`
+- `templates/dashboard/base.html`
+- `templates/dashboard/home.html`
+- `templates/dashboard/order_360.html`
+- `tests/unit/test_dashboard.py` (15 testes)
+- `app/domain/common.py` (PaginatedResponse + paginate helper)
+
+**ARQUIVOS ALTERADOS:**
+- `app/database/connection.py` — M-09 rollback
+- `app/domain/entities.py` — L-09/L-10 índices
+- `app/api/production.py` — L-17 enum, L-19 paginate, M-12 active, M-17 skip/limit
+- `app/api/quality.py` — L-19 paginate, M-17 skip/limit
+- `app/api/costing.py` — L-19 paginate
+- `app/repositories/production_repository.py` — M-12 list_all/inactive, M-17 skip/limit, M-18 joinedload
+- `app/repositories/quality_repository.py` — M-17 skip/limit
+- `app/services/production_service.py` — M-12 active, L-17 enum, M-17 skip/limit
+- `app/services/quality_service.py` — M-17 skip/limit
+- `app/main.py` — I-21 health DB check, dashboard routers
+- `tests/unit/test_api_production.py` — health test update
+
+**DOCUMENTOS CONSULTADOS:**
+- `plano/09-dashboard.md` — layout do dashboard executivo e Order 360°
+- `plano/08-integracao-eventos.md` — fluxo integrado PP-PI→QM→CO
+- `auditoria.md` — M-09, M-12, M-17, M-18, L-09/L-10, L-17, L-19, I-21
+
+**TESTES:**
+```
+158 passed in 5.18s
+```
+- `.venv/bin/python -m compileall app/` → OK
+- `.venv/bin/pytest tests/` → **158 passed** (era 143)
+- `npm run typecheck` → OK
+- `npm run lint` → OK
+
+**AUTO REVIEW:**
+- Dashboard é Python-first: dados no backend via SQLAlchemy parametrizado, frontend com Jinja2 + Plotly.js
+- AnalyticsService somente leitura (SELECT) — não gerencia transações
+- Paginação unificada com helper compartilhado (L-19)
+- Performance: N+1 resolvido com `joinedload` (M-18), índices em colunas de status (L-09/L-10)
+- Sem overengineering: HTML + CSS inline, sem frameworks JS pesados
+
+**SECURITY AUDIT:**
+- SQL injection: ✅ ORM parametrizado em AnalyticsService
+- XSS: ✅ `| tojson` escapa; `fetch()` para dados dinâmicos
+- Secrets: ✅ Nenhum
+- Validação: ✅ Pydantic enums (L-17), query params tipados
+- Erros: ✅ EntityNotFoundError retorna 404 genérico
+- CORS: N/A — sem endpoints de dados novos que requeiram CORS
+- Autenticação: ⚠️ Pendente (TASK-009)
+
+**PENDÊNCIAS:**
+- H-01: Autenticação/Autorização (TASK-009)
+- H-02: `update_recipe` sem rollback explícito (TASK-008.1)
+- M-14/M-15: Transições de estado (TASK-009)
+- M-16: Rate limiting (TASK-009)
+- M-19: Imports no meio do main.py (TASK-008.1)
+- L-20: Default active=None confuso (TASK-008.1)
+- L-21: order_360 sem BOM/roteiro (TASK-008.1)
+- I-25: Plotly.js sem SRI (TASK-008.1)
+
+**PRÓXIMA TAREFA:**
+TASK-008.1 — Correções pós-auditoria (H-02, M-19, L-20, L-21, I-25)
+
+---
+
 ## TASK-007 — CO Service + CostRecord API + Recipes CRUD + Paginação Padronizada
 
 **Status:** DONE
@@ -563,6 +704,9 @@ TASK-003 — Criar ProductionService e database setup
 | FastAPI | 0.115.0 | Framework API |
 | SQLAlchemy | 2.0.35 | ORM |
 | Pydantic | 2.9.0 | Validação de dados |
+| Jinja2 | 3.1.4 | Templates Dashboard |
+| Plotly.js | 2.35.2 | Gráficos Dashboard (CDN) |
+| Alembic | (latest) | Migrations |
 | pytest | 8.3.0 | Testes |
 | SQLite | (in-memory) | Testes unitários |
 
@@ -572,13 +716,16 @@ TASK-003 — Criar ProductionService e database setup
 simulador-erp-industrial/
 ├── app/
 │   ├── __init__.py
-│   ├── main.py                    # FastAPI app + routers + exception handlers
+│   ├── main.py                    # FastAPI app + routers + exception handlers + /health
 │   ├── core/                      # exceptions + logging
 │   ├── api/
 │   │   ├── __init__.py
-│   │   ├── production.py          # PP-PI REST endpoints (19 endpoints)
-│   │   └── quality.py             # QM REST endpoints (9 endpoints)
+│   │   ├── production.py          # PP-PI REST endpoints (23 endpoints)
+│   │   ├── quality.py             # QM REST endpoints (9 endpoints)
+│   │   ├── costing.py             # CO REST endpoints (6 endpoints)
+│   │   └── dashboard.py           # Dashboard pages + API (2 pages + 5 data endpoints)
 │   ├── domain/
+│   │   ├── common.py              # PaginatedResponse[T] + paginate() helper
 │   │   ├── entities.py            # Todos os modelos SQLAlchemy + CHECK constraints
 │   │   ├── production/
 │   │   │   ├── material.py        # Pydantic schemas
@@ -594,14 +741,20 @@ simulador-erp-industrial/
 │   │   ├── quality_repository.py
 │   │   └── costing_repository.py
 │   ├── services/
-│   │   ├── production_service.py  # ProductionService (19 métodos)
-│   │   └── quality_service.py     # QualityService (8 métodos)
+│   │   ├── production_service.py  # ProductionService (23 métodos)
+│   │   ├── quality_service.py     # QualityService (8 métodos)
+│   │   └── costing_service.py     # CostingService (7 métodos)
+│   ├── analytics/
+│   │   └── service.py             # AnalyticsService (8 métodos de agregação)
 │   ├── database/
-│   │   └── connection.py          # SQLAlchemy engine + session factory + session_scope
-│   ├── simulation/               # (vazio — TASK-008)
-│   ├── analytics/                 # (vazio)
-│   ├── templates/                 # (vazio)
+│   │   └── connection.py          # SQLAlchemy engine + session + session_dependency
+│   ├── simulation/                # (vazio — TASK-009)
 │   └── static/                    # (vazio)
+├── templates/
+│   └── dashboard/
+│       ├── base.html              # Layout base com nav + CSS
+│       ├── home.html              # Dashboard Executivo (KPIs + Plotly charts)
+│       └── order_360.html         # Order 360° (visão integrada PP-PI/QM/CO)
 ├── tests/
 │   ├── conftest.py               # Fixtures pytest
 │   ├── integration/
@@ -616,7 +769,10 @@ simulador-erp-industrial/
 │       ├── test_costing_repository.py
 │       ├── test_production_service.py
 │       ├── test_api_production.py  # 36 testes de API PP-PI
-│       └── test_api_quality.py     # 20 testes de API QM
+│       ├── test_api_quality.py     # 20 testes de API QM
+│       ├── test_api_costing.py     # 15 testes de API CO
+│       ├── test_recipes_crud.py    # 15 testes Recipes CRUD
+│       └── test_dashboard.py       # 15 testes Analytics + Dashboard API
 ├── database/
 │   └── migrations/                # Alembic migrations
 ├── scripts/                      # (vazio)
@@ -670,4 +826,9 @@ npm run dev                                # Dev server
 5. **Não afirme que é SAP** — use "inspired by SAP concepts"
 6. **Use Decimal para valores monetários** — nunca float
 7. **Para testes use SQLite in-memory** — conforme fixtures em `tests/conftest.py`
-8. **Próximo passo: TASK-005** — API endpoints PP-PI (FastAPI)
+8. **Próximo passo: TASK-009** — Autenticação/Autorização + Rate Limiting + Máquinas de Estado
+   - H-01: Implementar JWT/OAuth2 + roles (admin, operator, viewer)
+   - M-14/M-15: State machines para ProductionOrder e QualityInspection
+   - M-16: Rate limiting (slowapi ou fastapi-limiter)
+   - L-14: Cascade delete ProductionOrder→Batches
+9. **Status atual:** 158 testes passando, dashboard funcional, todas as correções de performance aplicadas

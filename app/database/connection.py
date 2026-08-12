@@ -80,13 +80,16 @@ def session_scope() -> Generator[Session, None, None]:
 
 
 def session_dependency() -> Generator[Session, None, None]:
-    """FastAPI dependency that yields a DB session and closes it after use.
+    """FastAPI dependency that yields a DB session.
 
-    Note: This dependency does NOT manage transactions. Services are responsible
-    for calling session.commit() or session.rollback() as needed.
+    Automatically rolls back on unhandled exceptions and closes the session.
+    Services are still responsible for calling session.commit() when successful.
     """
     session = get_session()
     try:
         yield session
+    except Exception:
+        session.rollback()
+        raise
     finally:
         session.close()
