@@ -323,3 +323,182 @@ Nenhum item CRITICAL encontrado. Os 3 HIGH são corrigíveis sem retrabalho sign
 
 ### Revalidação de Segurança
 - Sem secrets; `.env.example` sem credenciais reais; ORM parametrizado; validação em Pydantic + whitelist; erros traduzidos para domínio; logs sem dados sensíveis.
+
+---
+
+## Auditoria TASK-004 — Database Connection + Alembic
+
+**Data:** 2026-08-11
+**Revisor:** Auditor de Segurança/Qualidade
+**Escopo:** Arquivos de TASK-004 (connection.py, alembic.ini, env.py, migração inicial)
+
+### Sumário
+
+| Severidade | Quantidade |
+|-----------|-----------|
+| CRITICAL | 0 |
+| HIGH | 0 |
+| MEDIUM | 4 |
+| LOW | 4 |
+| INFO | 4 |
+
+---
+
+### MEDIUM
+
+**M-11 — Thread safety: `_engine` e `_SessionLocal` sem sincronização**
+**Arquivo:** `app/database/connection.py:22-36`
+**Problema:** Os globais `_engine` e `_SessionLocal` são inicializados sem lock. Em um app FastAPI multi-threaded, múltiplas requisições podem chamar `get_engine()` simultaneamente, resultando em race condition onde ambas threads veem `_engine is None` e criam engines duplicados.
+**Impacto:** Em cenários de alta concorrência, pode causar engines duplicados e leaks de conexão.
+**Correção:** Usar `threading.Lock` ou `functools.lru_cache` para garantir inicialização thread-safe.
+
+---
+
+**M-12 — Colunas `is_active`, `status` e `planned_total_cost` sem `server_default`**
+**Arquivo:** `database/migrations/versions/4337571b8a8f_initial.py:30,69,123`
+**Problema:** As colunas `is_active` (materials, recipes), `status` (orders, batches) e `planned_total_cost` (cost_records) são `nullable=False` mas não têm `server_default` na migração. O Python aplica defaults via ORM, mas inserts via SQL puro falharão.
+**Impacto:** Scripts de manutenção, backups restaurados, ou inserts diretos no banco quebrarão sem valores explícitos.
+**Correção:** Adicionar `server_default=text("true")` para booleanos e `server_default=text("'CREATED'")` para status nas entidades, ou aceitar o risco documentado.
+
+---
+
+**M-13 — `env.py` sem `render_as_batch=True` para compatibilidade SQLite**
+**Arquivo:** `database/migrations/env.py:42-46`
+**Problema:** O `context.configure()` não inclui `render_as_batch=True`. SQLite tem suporte limitado a ALTER TABLE (não permite drop columns, rename, add constraints). Sem batch mode, operações futuras em SQLite falharão.
+**Impacto:** Desenvolvimento local com SQLite não conseguirá aplicar migrações que envolvam alterações de schema.
+**Correção:** Adicionar `render_as_batch=True` ao `context.configure()` em `run_migrations_online()`.
+
+---
+
+**M-14 — Imports não utilizados em `env.py`**
+**Arquivo:** `database/migrations/env.py:11`
+**Problema:** `engine_from_config` e `pool` são importados mas nunca usados. Resto do template padrão Alembic.
+**Impacto:** Código morto, pode confundir desenvolvedores.
+**Correção:** Remover imports não utilizados.
+
+---
+
+### LOW
+
+**L-06 — `get_session()` sem padrão context manager para uso standalone**
+**Arquivo:** `app/database/connection.py:39-43`
+**Problema:** `get_session()` retorna um `Session` sem garantir cleanup automático. Se o caller esquecer de fechar, há leak de conexão.
+**Impacto:** Uso incorreto pode causar conexões abertas indefinidamente.
+**Correção:** Adicionar `@contextmanager` wrapper ou documentar claramente a responsabilidade do caller.
+
+---
+
+**L-07 — Sem configuração de connection pool exposta**
+**Arquivo:** `app/database/connection.py:28-29`
+**Problema:** `create_engine()` usa defaults do SQLAlchemy sem expor `pool_size`, `max_overflow`, `pool_recycle`. Para produção, esses valores devem ser ajustáveis.
+**Impacto:** Defaults podem não ser ideais para ambientes de produção com alta concorrência ou conexões instáveis.
+**Correção:** Expor parâmetros via `.env` (ex: `DB_POOL_SIZE`, `DB_POOL_RECYCLE`).
+
+---
+
+**L-08 — Sem testes de downgrade Alembic**
+**Arquivo:** `database/migrations/`
+**Problema:** Não há teste que verifica se `alembic downgrade -1` funciona corretamente.
+**Impacto:** Downgrade pode falhar silenciosamente em produção, impedindo rollbacks.
+**Correção:** Adicionar teste que aplica e reverte a migração inicial.
+
+---
+
+**L-09 — Duplicação de lógica de URL entre `connection.py` e `env.py`**
+**Arquivo:** `app/database/connection.py:20`, `database/migrations/env.py:24-25`
+**Problema:** Ambos os arquivos definem a mesma lógica: `os.getenv("DATABASE_URL", "sqlite:///:memory:")`. Se a fallback mudar, precisa atualizar em dois lugares.
+**Impacto:** Risco de inconsistência se o fallback for alterado.
+**Correção:** Centralizar em uma função `_get_database_url()` em `connection.py` e importar em `env.py`.
+
+---
+
+### INFO
+
+**I-07 — `load_dotenv()` modifica ambiente global no import**
+**Arquivo:** `app/database/connection.py:18`
+**Comportamento:** `load_dotenv()` sem `override=False` explícito pode sobrescrever variáveis de ambiente já definidas.
+**Impacto:** Em testes ou containers, variáveis do host podem ser sobrescritas por `.env`.
+**Observação:** Comportamento padrão é seguro (`override=False`), mas seria mais explícito.
+
+---
+
+**I-08 — `session_dependency()` não gerencia transações**
+**Arquivo:** `app/database/connection.py:46-52`
+**Comportamento:** O generator apenas fornece o session e fecha após uso. Não faz commit/rollback.
+**Impacto:** Routes que esquecem de commitar perdem alterações silenciosamente.
+**Observação:** Por design, services gerenciam transações. Mas poderia ser mais explícito no docstring.
+
+---
+
+**I-09 — Sem logging em `connection.py`**
+**Arquivo:** `app/database/connection.py`
+**Observação:** Não há logging de eventos de conexão (engine created, session created, errors).
+**Impacto:** Debug de problemas de conexão em produção fica mais difícil.
+**Correção:** Adicionar `logger.info("Database engine created")` após `_build_engine()`.
+
+---
+
+**I-10 — Migração não inclui `server_default` para `created_at`**
+**Arquivo:** `database/migrations/versions/4337571b8a8f_initial.py:31,53,70,108,129,172,188`
+**Observação:** Todas as colunas `created_at` usam Python default (`default=_utcnow`) mas não têm `server_default` (ex: `server_default=func.now()`).
+**Impacto:** Inserts via SQL puro falharão ou resultarão em NULL para `created_at`.
+**Correção:** Adicionar `server_default=func.now()` nas entidades para todas as colunas de timestamp.
+
+---
+
+### Resumo para Correção TASK-004
+
+| Item | Severidade | Ação Sugerida |
+|------|-----------|---------------|
+| M-11 Thread safety | MEDIUM | Adicionar lock ou lru_cache |
+| M-12 Colunas sem server_default | MEDIUM | Adicionar server_default ou documentar risco |
+| M-13 render_as_batch para SQLite | MEDIUM | Adicionar render_as_batch=True |
+| M-14 Imports não usados env.py | MEDIUM | Remover imports mortos |
+| L-06 get_session sem context manager | LOW | Adicionar wrapper ou documentação |
+| L-07 Sem config de pool | LOW | Expor via .env |
+| L-08 Sem teste de downgrade | LOW | Adicionar teste |
+| L-09 Duplicação URL logic | LOW | Centralizar em função |
+| I-07 load_dotenv override | INFO | Explicitar override=False |
+| I-08 session_dependency transações | INFO | Documentar responsabilidade |
+| I-09 Sem logging connection | INFO | Adicionar logs |
+| I-10 created_at sem server_default | INFO | Adicionar server_default |
+- Sem secrets; `.env.example` sem credenciais reais; ORM parametrizado; validação em Pydantic + whitelist; erros traduzidos para domínio; logs sem dados sensíveis.
+
+---
+
+## Correções Pós-Auditoria TASK-004
+
+**Data:** 2026-08-12
+**Status:** Corrigido — 12/12 itens tratados
+**Validação:** `PYTHONPATH=. pytest tests/` → **57 passed** (era 56); `compileall` OK; `npm run typecheck` OK; `npm run lint` OK
+
+| Item | Severidade | Status | Correção Aplicada |
+|------|-----------|--------|-------------------|
+| M-11 Thread safety | MEDIUM | ✅ Corrigido | `threading.Lock` com double-check locking em `get_engine()` e `get_session()` |
+| M-12 Colunas sem server_default | MEDIUM | ✅ Corrigido | `server_default` adicionado para `is_active`, `status`, `planned_total_cost` em entidades e migration |
+| M-13 render_as_batch para SQLite | MEDIUM | ✅ Corrigido | `render_as_batch=True` adicionado em `run_migrations_offline()` e `run_migrations_online()` |
+| M-14 Imports não usados env.py | MEDIUM | ✅ Corrigido | Removidos `engine_from_config` e `pool` |
+| L-06 get_session sem context manager | LOW | ✅ Corrigido | Adicionado `session_scope()` context manager em `connection.py` |
+| L-07 Sem config de pool | LOW | ✅ Corrigido | `DB_POOL_SIZE`, `DB_MAX_OVERFLOW`, `DB_POOL_RECYCLE` expostos via `.env` |
+| L-08 Sem teste de downgrade | LOW | ✅ Corrigido | Teste adicionado em `tests/integration/test_migrations.py` |
+| L-09 Duplicação URL logic | LOW | ✅ Corrigido | Função `get_database_url()` centralizada em `connection.py` e reutilizada em `env.py` |
+| I-07 load_dotenv override | INFO | ✅ Corrigido | `override=False` explicitado no `load_dotenv()` |
+| I-08 session_dependency transações | INFO | ✅ Corrigido | Docstring documenta que services são responsáveis por commit/rollback |
+| I-09 Sem logging connection | INFO | ✅ Corrigido | `logger.info("Database engine created")` após inicialização |
+| I-10 created_at sem server_default | INFO | ✅ Corrigido | `server_default=func.now()` adicionado em todas as colunas `created_at` |
+
+### Arquivos Criados
+- `tests/integration/test_migrations.py`
+
+### Arquivos Alterados
+- `app/database/connection.py`
+- `app/domain/entities.py`
+- `database/migrations/env.py`
+- `database/migrations/versions/4337571b8a8f_initial.py`
+- `.env.example`
+
+### Revalidação de Segurança
+- Thread safety garantida com double-check locking pattern
+- Server defaults garantem consistência em inserts via SQL puro
+- Logs sem dados sensíveis (URL sem credenciais)
+- Pool configuration exposta para tuning em produção

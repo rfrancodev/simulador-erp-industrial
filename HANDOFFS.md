@@ -4,6 +4,49 @@ This file documents the completion of each task, serving as the source of truth 
 
 ---
 
+## TASK-004 — Database Connection + Alembic Setup
+
+**Status:** DONE
+
+**Data:** 2026-08-11
+
+**IMPLEMENTADO:**
+- `app/database/connection.py` — SQLAlchemy engine + session factory com `python-dotenv`
+  - Lê `DATABASE_URL` do ambiente; fallback SQLite in-memory quando não definido
+  - `session_dependency()` generator pronto para injeção em rotas FastAPI
+- `alembic.ini` — URL delegado a `env.py` (sem hardcode)
+- `database/migrations/env.py` — importa `Base.metadata` de `app.domain.entities` + `get_engine()` de `app.database.connection`
+- Migração inicial autogerada (`4337571b8a8f_initial.py`) — 11 tabelas com CHECK constraints, índices e FKs
+- `alembic upgrade head` aplicado com sucesso em SQLite de validação
+
+**ARQUIVOS CRIADOS:**
+- `app/database/__init__.py`, `app/database/connection.py`
+- `alembic.ini`
+- `database/migrations/env.py`, `database/migrations/script.py.mako`
+- `database/migrations/versions/4337571b8a8f_initial.py`
+
+**TESTES:**
+- `.venv/bin/python -m compileall app/` → OK
+- `.venv/bin/pytest tests/` → 56 passed
+- `npm run typecheck` → OK
+
+**AUTO REVIEW:**
+- Conexão isolada em `app/database/` — sem acoplamento a domain/services
+- Alembic configurado para autogenerate contra `Base.metadata`
+- Migração inicial cobre todas as entidades com constraints
+
+**SECURITY AUDIT:**
+- `DATABASE_URL` via env; sem credenciais hardcoded
+- `.env.example` com placeholders; `.env` no `.gitignore`
+
+**PENDÊNCIAS:**
+- TASK-005: API endpoints PP-PI (Material, Production Order)
+
+**PRÓXIMA TAREFA:**
+TASK-005 — Criar REST endpoints para PP-PI (FastAPI)
+
+---
+
 ## TASK-003 — Correção da Auditoria (auditoria.md)
 
 **Status:** DONE
@@ -296,6 +339,8 @@ simulador-erp-industrial/
 │   │   └── costing_repository.py
 │   ├── services/
 │   │   └── production_service.py  # ProductionService (validação + transação)
+│   ├── database/
+│   │   └── connection.py          # SQLAlchemy engine + session factory
 │   ├── simulation/               # (vazio — TASK-008)
 │   ├── analytics/                 # (vazio)
 │   ├── templates/                 # (vazio)
@@ -311,10 +356,12 @@ simulador-erp-industrial/
 │       ├── test_recipe.py
 │       ├── test_costing_repository.py
 │       └── test_production_service.py
-├── database/                      # (vazio — TASK-004)
+├── database/
+│   └── migrations/                # Alembic migrations
 ├── scripts/                      # (vazio)
 ├── requirements.txt
 ├── pytest.ini
+├── alembic.ini                    # Alembic configuration
 ├── .env.example
 └── .venv/                        # Virtualenv com dependências instaladas
 ```
@@ -322,7 +369,7 @@ simulador-erp-industrial/
 ## Variáveis de Ambiente (.env.example)
 
 ```env
-DATABASE_URL=postgresql://user:password@localhost:5432/industrial_erp
+DATABASE_URL=postgresql://<user>:<password>@localhost:5432/industrial_erp
 APP_HOST=0.0.0.0
 APP_PORT=8000
 SECRET_KEY=change-me-in-production
@@ -339,6 +386,11 @@ SIM_DOWNTIME_PROBABILITY=0.05
 .venv/bin/python -m compileall app/       # Validação estática
 .venv/bin/pytest tests/ -v                 # Testes unitários
 
+# Database
+.venv/bin/alembic revision --autogenerate -m "description"  # Gerar migração
+.venv/bin/alembic upgrade head                               # Aplicar migrações
+.venv/bin/alembic downgrade -1                               # Reverter última
+
 # TypeScript (legado)
 npm run typecheck                          # Verificação TypeScript
 npm run build                              # Build Vite
@@ -354,4 +406,4 @@ npm run dev                                # Dev server
 5. **Não afirme que é SAP** — use "inspired by SAP concepts"
 6. **Use Decimal para valores monetários** — nunca float
 7. **Para testes use SQLite in-memory** — conforme fixtures em `tests/conftest.py`
-8. **Próximo passo: TASK-003** — ProductionService + database connection
+8. **Próximo passo: TASK-005** — API endpoints PP-PI (FastAPI)
