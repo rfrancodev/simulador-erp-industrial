@@ -350,7 +350,27 @@ Evitar tarefas gigantes como "Implementar todo o módulo PP-PI."
 - 5 endpoints de dados + 2 páginas HTML
 - 158 testes (era 143). 0 CRITICAL, 0 HIGH, 0 MEDIUM, 0 LOW, 2 INFO
 
-### Próxima: TASK-009 — Autenticação/Autorização + Rate Limiting + Máquinas de Estado
+### TASK-009 — Autenticação/Autorização + Rate Limiting + Máquinas de Estado
+**Status:** DONE
+- H-01: JWT (PyJWT HS256) + RBAC (admin/operator/viewer) por método HTTP
+  - `User` entity, hashing PBKDF2 (stdlib), login/me/register, `require_api_access`
+  - Todos os routers `/api/*` protegidos; `/dashboard/` HTML público (documentado)
+- M-14/M-15: máquinas de estado para ProductionOrder e QualityInspection
+  - `app/domain/state_machine.py` + `InvalidStateTransitionError` (409)
+  - `PUT /orders/{id}/status` + validação de transição em `update_inspection_result`
+- M-16: rate limiting in-memory (sliding window, 429) via middleware
+- L-14: cascade delete `ProductionOrder→batches/cost_record`, `Batch→inspection`, `Inspection→non_conformities`
+- 190 testes (era 158). 0 CRITICAL, 0 HIGH, 0 MEDIUM, 0 LOW, 3 INFO
+
+### TASK-009.1 — Correções Pós-Auditoria
+**Status:** DONE
+- M-20/M-21: rate limiter com `X-Forwarded-For`/`X-Real-IP` (TRUST_PROXY_HEADERS) + cleanup anti-memory-leak
+- L-22: login constant-time (hash dummy) · L-23: `_resolve_role` (403 em role inválido)
+- L-24: min iterations PBKDF2 · L-25: `PARTIAL → COMPLETED` · L-26: cascade confirmations/consumptions
+- I-29: warning SECRET_KEY fraco · I-32: claim `role` removido · I-33: getpass CLI · I-34: lockout de conta (423)
+- 203 testes (era 190). Migração `a1b2c3d4e5f6` (failed_attempts/locked_until)
+
+### Próxima: TASK-010 — Simulation Engine + Seed de Dados Sintéticos
 
 ---
 

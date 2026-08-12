@@ -13,13 +13,19 @@ from app.domain.production.recipe import (
     ProductionOrder,
     ProductionOrderCreate,
     ProductionOrderStatus,
+    ProductionOrderStatusUpdate,
     ProductionRecipe,
     ProductionRecipeCreate,
     ProductionRecipeUpdate,
 )
+from app.security.dependencies import require_api_access
 from app.services.production_service import ProductionService
 
-router = APIRouter(prefix="/api/production", tags=["PP-PI"])
+router = APIRouter(
+    prefix="/api/production",
+    tags=["PP-PI"],
+    dependencies=[Depends(require_api_access)],
+)
 
 
 def _svc(session: Session = Depends(session_dependency)) -> ProductionService:
@@ -106,6 +112,13 @@ def list_orders_by_status(
 @router.post("/orders", response_model=ProductionOrder, status_code=201)
 def create_production_order(data: ProductionOrderCreate, svc: ProductionService = Depends(_svc)):
     return svc.create_production_order(data)
+
+
+@router.put("/orders/{id}/status", response_model=ProductionOrder)
+def update_order_status(
+    id: int, data: ProductionOrderStatusUpdate, svc: ProductionService = Depends(_svc)
+):
+    return svc.update_order_status(id, data.status)
 
 
 # ── Batches ──────────────────────────────────────────────────────────────

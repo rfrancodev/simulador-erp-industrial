@@ -12,9 +12,14 @@ from app.domain.quality.inspection import (
     QualityInspectionCreate,
     QualityInspectionResult,
 )
+from app.security.dependencies import require_api_access
 from app.services.quality_service import QualityService
 
-router = APIRouter(prefix="/api/quality", tags=["QM"])
+router = APIRouter(
+    prefix="/api/quality",
+    tags=["QM"],
+    dependencies=[Depends(require_api_access)],
+)
 
 
 def _svc(session: Session = Depends(session_dependency)) -> QualityService:

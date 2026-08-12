@@ -7,6 +7,7 @@ translated into domain errors before propagating to the API layer (L-03).
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from logging import getLogger
 
 from sqlalchemy import select
@@ -36,6 +37,10 @@ from app.domain.production.recipe import (
     ProductionOrderStatus,
     ProductionRecipeCreate,
     ProductionRecipeUpdate,
+)
+from app.domain.state_machine import (
+    PRODUCTION_ORDER_TRANSITIONS,
+    validate_transition,
 )
 from app.repositories.production_repository import (
     BatchRepository,
@@ -152,6 +157,27 @@ class ProductionService:
         except IntegrityError:
             self._session.rollback()
             raise DuplicateEntityError("ProductionOrder", data.order_number) from None
+
+    def update_order_status(self, id: int, status: ProductionOrderStatus) -> ProductionOrder:
+        order = self.orders.get_by_id(id)
+        if order is None:
+            raise EntityNotFoundError("ProductionOrder", id)
+
+        current = ProductionOrderStatus(order.status)
+        validate_transition(
+            PRODUCTION_ORDER_TRANSITIONS, current, status, entity="ProductionOrder"
+        )
+
+        now = datetime.now(UTC)
+        if status == ProductionOrderStatus.IN_PROCESS and order.actual_start is None:
+            order.actual_start = now
+        if status in (ProductionOrderStatus.COMPLETED, ProductionOrderStatus.PARTIAL):
+            order.actual_end = now
+
+        order.status = status.value
+        self._session.commit()
+        logger.info("Production order %s status %s -> %s", order.order_number, current.value, status.value)
+        return order
 
     # ── Batches ────────────────────────────────────────────────────────
 

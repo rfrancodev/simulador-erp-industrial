@@ -7,6 +7,7 @@ translated into domain errors before propagating to the API layer (L-03).
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from logging import getLogger
 
 from sqlalchemy.exc import IntegrityError
@@ -20,6 +21,7 @@ from app.domain.quality.inspection import (
     QualityInspectionCreate,
     QualityInspectionResult,
 )
+from app.domain.state_machine import INSPECTION_TRANSITIONS, validate_transition
 from app.repositories.production_repository import BatchRepository
 from app.repositories.quality_repository import (
     NonConformityRepository,
@@ -81,12 +83,26 @@ class QualityService:
         if inspection is None:
             raise EntityNotFoundError("QualityInspection", id)
 
+        current = InspectionStatus(inspection.inspection_status)
+        target = data.inspection_status
+        validate_transition(
+            INSPECTION_TRANSITIONS, current, target, entity="QualityInspection"
+        )
+
         result_data = data.model_dump(exclude_unset=True)
         status = result_data.pop("inspection_status")
 
+        if target in (InspectionStatus.PASSED, InspectionStatus.FAILED, InspectionStatus.SCRAP):
+            result_data["result_date"] = datetime.now(UTC)
+
         updated = self.inspections.update_result(id, status, **result_data)
         self._session.commit()
-        logger.info("Quality inspection %s result recorded", updated.inspection_lot)
+        logger.info(
+            "Quality inspection %s result recorded (%s -> %s)",
+            updated.inspection_lot,
+            current.value,
+            target.value,
+        )
         return updated
 
     # ── Non-Conformities ────────────────────────────────────────────────

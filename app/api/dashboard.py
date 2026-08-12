@@ -7,9 +7,14 @@ from sqlalchemy.orm import Session
 
 from app.analytics.service import AnalyticsService
 from app.database.connection import session_dependency
+from app.security.dependencies import require_api_access
 
 router = APIRouter(prefix="/dashboard", tags=["Dashboard"])
-api_router = APIRouter(prefix="/api/dashboard", tags=["Dashboard API"])
+api_router = APIRouter(
+    prefix="/api/dashboard",
+    tags=["Dashboard API"],
+    dependencies=[Depends(require_api_access)],
+)
 
 templates = Jinja2Templates(directory="templates")
 

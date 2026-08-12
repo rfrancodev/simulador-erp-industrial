@@ -44,3 +44,19 @@ class EntityHasDependenciesError(DomainError):
             f"{entity} with identifier {identifier!r} cannot be deleted because it is "
             f"referenced by: {', '.join(dependencies) or 'unknown dependencies'}"
         )
+
+
+class InvalidStateTransitionError(DomainError):
+    def __init__(self, entity: str, current, target, allowed: set) -> None:
+        self.entity = entity
+        self.current = current
+        self.target = target
+        allowed_list = ", ".join(sorted(_state_name(a) for a in allowed)) or "none"
+        super().__init__(
+            f"Invalid {entity} state transition: {_state_name(current)} -> {_state_name(target)}. "
+            f"Allowed: {allowed_list}"
+        )
+
+
+def _state_name(value) -> str:
+    return getattr(value, "value", str(value))

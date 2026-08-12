@@ -4,6 +4,157 @@ This file documents the completion of each task, serving as the source of truth 
 
 ---
 
+## TASK-009.1 — Correções Pós-Auditoria (M-20, M-21, L-22..L-26, I-29, I-32..I-34)
+
+**Status:** DONE
+
+**Data:** 2026-08-12
+
+**IMPLEMENTADO:**
+- **M-20:** `_client_key()` lê `X-Forwarded-For`/`X-Real-IP` quando `TRUST_PROXY_HEADERS=true` (env var); fallback para `client.host`
+- **M-21:** `_cleanup()` no rate limiter remove chaves expiradas a cada 60s (elimina memory leak)
+- **L-22:** login constant-time — `authenticate` sempre roda `verify_password` com hash dummy (`_DUMMY_PASSWORD_HASH`)
+- **L-23:** `_resolve_role()` em `dependencies.py` — role inválido → 403 (não 500)
+- **L-24:** `verify_password` rejeita hash com `iterations < _MIN_ITERATIONS` (600k)
+- **L-25:** `PARTIAL → {COMPLETED}` adicionado ao state machine
+- **L-26:** cascade `Batch.production_confirmations` e `Batch.material_consumptions` (`delete-orphan`)
+- **I-29:** warning de log quando `SECRET_KEY` < 32 bytes
+- **I-32:** claim `role` removido do JWT; `create_access_token(subject)`
+- **I-33:** `scripts/create_user.py` usa `getpass` (senha fora do `ps`)
+- **I-34:** lockout de conta — colunas `failed_attempts`/`locked_until`, 5 falhas → 15 min (HTTP 423), reset no sucesso
+
+**ARQUIVOS CRIADOS:**
+- `database/migrations/versions/a1b2c3d4e5f6_lockout.py`
+- `tests/unit/test_cascade.py` (2 testes)
+
+**ARQUIVOS ALTERADOS:**
+- `app/middleware/rate_limit.py` (M-20/M-21)
+- `app/services/auth_service.py` (L-22/I-34)
+- `app/security/dependencies.py` (L-23), `app/security/passwords.py` (L-24), `app/security/tokens.py` (I-29/I-32)
+- `app/domain/state_machine.py` (L-25), `app/domain/entities.py` (L-26/I-34)
+- `app/api/auth.py` (I-32), `scripts/create_user.py` (I-33), `.env.example` (TRUST_PROXY_HEADERS)
+- `tests/unit/test_auth.py` (+5), `test_rate_limit.py` (+5), `test_state_machine.py` (+1)
+
+**TESTES:**
+```
+203 passed in 16.95s
+```
+- `.venv/bin/python -m compileall app/` → OK
+- `.venv/bin/pytest tests/` → **203 passed** (era 190)
+- `npm run typecheck` → OK
+- `npm run lint` → OK
+- `alembic upgrade/downgrade` → OK (migração `a1b2c3d4e5f6` aplicada e revertida)
+
+**AUTO REVIEW:**
+- Login constant-time: PBKDF2 sempre executado; lockout mitiga brute-force (complemento do L-22)
+- `_resolve_role` garante 403 em dados corrompidos em vez de 500
+- Rate limiter resolve IP real atrás de proxy + sem crescimento ilimitado
+- Correções minimamente invasivas, seguindo padrões existentes
+
+**SECURITY AUDIT:**
+- 0 CRITICAL, 0 HIGH, 0 MEDIUM, 0 LOW após correções
+- ⚠️ Persistente (INFO): rate limiter distribuído multi-worker (I-30) e dashboard HTML público (I-31)
+
+**PENDÊNCIAS:**
+- I-30: rate limiter distribuído multi-worker (requer Redis) — fora do escopo
+- I-31: dashboard HTML público — login UI futura
+
+**PRÓXIMA TAREFA:**
+TASK-010 — Simulation Engine + Seed de Dados Sintéticos
+
+---
+
+## TASK-009 — Autenticação/Autorização + Rate Limiting + Máquinas de Estado
+
+**Status:** DONE
+
+**Data:** 2026-08-12
+
+**IMPLEMENTADO:**
+- **H-01 — Autenticação/Autorização (JWT + RBAC)**
+  - `User` entity (`app/domain/entities.py`) com username, password_hash, role (admin/operator/viewer), is_active
+  - Hashing de senha PBKDF2-HMAC-SHA256 (stdlib, sem dependência extra) em `app/security/passwords.py`
+  - JWT HS256 via PyJWT em `app/security/tokens.py` (SECRET_KEY + ACCESS_TOKEN_EXPIRE_MINUTES)
+  - `app/security/dependencies.py` — `get_current_user`, `require_roles`, `require_api_access` (RBAC por método HTTP: GET→viewer, POST/PUT→operator, DELETE→admin)
+  - `app/api/auth.py` — `POST /api/auth/login` (OAuth2 form), `GET /api/auth/me`, `POST /api/auth/register` (admin-only)
+  - Todos os routers `/api/*` (production, quality, costing, dashboard API) protegidos com `require_api_access`
+  - `scripts/create_user.py` — CLI para bootstrap do primeiro admin
+- **M-14/M-15 — Máquinas de Estado**
+  - `app/domain/state_machine.py` — mapas de transição + `validate_transition`
+  - `InvalidStateTransitionError` (→ 409) em `app/core/exceptions.py`
+  - `ProductionService.update_order_status` + `PUT /api/production/orders/{id}/status`
+  - `QualityService.update_inspection_result` valida transições + seta `result_date`
+- **M-16 — Rate Limiting**
+  - `app/middleware/rate_limit.py` — sliding-window in-memory keyed por IP, `RATE_LIMIT_PER_MINUTE`, 429
+- **L-14 — Cascade Delete**
+  - `ProductionOrder.batches/cost_record`, `Batch.quality_inspection`, `QualityInspection.non_conformities` com `cascade="all, delete-orphan"`
+
+**ARQUIVOS CRIADOS:**
+- `app/domain/auth.py`, `app/domain/state_machine.py`
+- `app/security/__init__.py`, `passwords.py`, `tokens.py`, `dependencies.py`
+- `app/repositories/user_repository.py`, `app/services/auth_service.py`, `app/api/auth.py`
+- `app/middleware/__init__.py`, `app/middleware/rate_limit.py`
+- `scripts/create_user.py`
+- `database/migrations/versions/7b3e9c1d2a4f_users.py`
+- `tests/unit/test_auth.py` (16 testes), `test_state_machine.py` (13), `test_rate_limit.py` (4)
+
+**ARQUIVOS ALTERADOS:**
+- `app/domain/entities.py` — User entity + cascades
+- `app/domain/production/recipe.py` — `ProductionOrderStatusUpdate`
+- `app/core/exceptions.py` — `InvalidStateTransitionError`
+- `app/main.py` — auth router, middleware, handler 409
+- `app/api/{production,quality,costing,dashboard}.py` — `require_api_access` + endpoint status
+- `app/services/{production,quality}_service.py` — máquinas de estado
+- `requirements.txt` — PyJWT + python-multipart
+- `.env.example` — ACCESS_TOKEN_EXPIRE_MINUTES, RATE_LIMIT_PER_MINUTE
+- `pytest.ini` — marker `no_auth`
+- `tests/conftest.py` — autouse admin auth override + reset do rate limiter + SECRET_KEY de teste
+- `tests/unit/test_api_quality.py` — transições estritas (PENDING→IN_PROGRESS→PASSED)
+
+**DOCUMENTOS CONSULTADOS:**
+- `plano/03-stack-tecnologica.md`, `plano/04-arquitetura-software.md`
+- `plano/05-dominio-pp-pi.md`, `plano/06-dominio-qm.md`
+- `auditoria.md` — H-01, M-14, M-15, M-16, L-14
+- `TASKS.md` — ciclo Task → Test → Auto Review → Security Audit → Handoff
+
+**TESTES:**
+```
+190 passed in 12.45s
+```
+- `.venv/bin/python -m compileall app/` → OK
+- `.venv/bin/pytest tests/` → **190 passed** (era 158)
+- `npm run typecheck` → OK
+- `npm run lint` → OK
+- `alembic upgrade head` + downgrade → OK (integration test)
+
+**AUTO REVIEW:**
+- Auth Python-first: JWT + RBAC sem framework externo (só PyJWT); hashing PBKDF2 stdlib
+- Máquinas de estado isoladas em `domain/state_machine.py`; serviço valida antes de persistir
+- Rate limiter simples, thread-safe (Lock), sem dependência; resetável para testes
+- RBAC por método HTTP — política única e documentada em `require_api_access`
+- Cascade delete (L-14) minimalista — só configuração de relationship, sem novo endpoint
+- Testes cobrem sucesso, erro (401/403/409) e borda
+
+**SECURITY AUDIT:**
+- Secrets: `.env` não versionado; `.env.example` com placeholders; sem senha/token hardcoded
+- Senhas: PBKDF2-SHA256 600k iterações + salt aleatório + `hmac.compare_digest`
+- JWT: HS256 assinado; PyJWT valida exp/assinatura; `sub` usado para lookup de usuário
+- SQL injection: ✅ ORM parametrizado (UserRepository)
+- RBAC: viewer=read, operator=write, admin=delete (403 em insuficiência)
+- Rate limiting: 429 em excesso; estado in-memory (single-instance)
+- ⚠️ SECRET_KEY default (23 bytes) < 32 bytes recomendado — documentado; produção deve definir ≥32 bytes
+- ⚠️ Rate limiter não lida com X-Forwarded-For (IP do proxy atrás de reverse proxy) — documentado
+
+**PENDÊNCIAS:**
+- Dashboard HTML (`/dashboard/`) permanece público (read-only) — login UI futura (TASK-010+)
+- `get_current_user` não verifica `role` no token (role vem do DB, não do token) — por design
+- Rate limiter in-memory não escala para múltiplos workers — aceitável para single-instance
+
+**PRÓXIMA TAREFA:**
+TASK-010 — Simulation Engine (`app/simulation/`) + seed de dados sintéticos
+
+---
+
 ## TASK-008.1 — Correções Pós-Auditoria (H-02, M-19, L-20, L-21, I-25)
 
 **Status:** DONE

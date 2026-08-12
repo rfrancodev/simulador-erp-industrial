@@ -1736,3 +1736,454 @@ from app.api.dashboard import router as dashboard_router
 **Risco de Segurança:** ⚠️ Médio — apenas H-01 (autenticação) permanece como bloqueante para produção.
 
 **Recomendação Final:** Prosseguir com TASK-009 (Autenticação/Autorização + Rate Limiting + Máquinas de Estado).
+
+---
+
+## Auditoria TASK-009 — Autenticação/Autorização + Rate Limiting + Máquinas de Estado
+
+**Data:** 2026-08-12
+**Revisor:** Auditor de Segurança/Qualidade (pós-implementação)
+**Escopo:** TASK-009 — JWT + RBAC (H-01), máquinas de estado (M-14/M-15), rate limiting (M-16), cascade delete (L-14).
+
+### Sumário
+
+| Severidade | Quantidade |
+|-----------|-----------|
+| CRITICAL | 0 |
+| HIGH | 0 |
+| MEDIUM | 0 |
+| LOW | 0 |
+| INFO | 3 |
+
+---
+
+### Itens Anteriores Resolvidos na TASK-009
+
+| Item | Severidade | Status | Correção Aplicada |
+|------|-----------|--------|-------------------|
+| H-01 Ausência de Autenticação/Autorização | HIGH | ✅ Corrigido | JWT HS256 (PyJWT) + RBAC por método HTTP (admin/operator/viewer); todos os routers `/api/*` protegidos via `require_api_access` |
+| M-14 ProductionOrder sem validação de transição | MEDIUM | ✅ Corrigido | `app/domain/state_machine.py` + `ProductionService.update_order_status` + `PUT /orders/{id}/status`; `InvalidStateTransitionError` → 409 |
+| M-15 QualityInspection sem validação de transição | MEDIUM | ✅ Corrigido | `validate_transition` em `QualityService.update_inspection_result`; `result_date` setado em estados de resultado |
+| M-16 Ausência de Rate Limiting | MEDIUM | ✅ Corrigido | `RateLimitMiddleware` (sliding-window in-memory por IP, 429), configurável via `RATE_LIMIT_PER_MINUTE` |
+| L-14 Ausência de Cascade Delete | LOW | ✅ Corrigido | `cascade="all, delete-orphan"` em `ProductionOrder.batches/cost_record`, `Batch.quality_inspection`, `QualityInspection.non_conformities` |
+
+---
+
+### INFO (novos achados TASK-009)
+
+#### I-29 — `SECRET_KEY` default abaixo de 32 bytes
+
+**Arquivo:** `app/security/tokens.py`, `.env.example`
+**Observação:** O default `change-me-in-production` tem 23 bytes, abaixo do mínimo recomendado de 32 bytes para HS256 (RFC 7518 §3.2). PyJWT emite `InsecureKeyLengthWarning`.
+**Ação:** Produção deve definir `SECRET_KEY` com ≥32 bytes aleatórios. Documentado no `.env.example`.
+
+---
+
+#### I-30 — Rate limiter in-memory não escala para múltiplos workers
+
+**Arquivo:** `app/middleware/rate_limit.py`
+**Observação:** O estado do limiter é mantido em memória por processo. Em deployment com múltiplos workers/containers, cada instância teria janela própria. Não usa `X-Forwarded-For` (atrás de reverse proxy, todos os clientes teriam o IP do proxy).
+**Ação futura:** Para produção multi-worker, usar backend distribuído (Redis) ou configurar o proxy para repassar `X-Forwarded-For`.
+
+---
+
+#### I-31 — Dashboard HTML permanece público (read-only)
+
+**Arquivo:** `app/api/dashboard.py`
+**Observação:** As páginas `/dashboard/` e `/dashboard/order-360` são servidas sem autenticação (visões agregadas de analytics). Os endpoints de dados `/api/dashboard/*` por trás delas estão protegidos.
+**Ação futura:** Adicionar login UI / proteção das páginas HTML em TASK-010+.
+
+---
+
+### Análise de Segurança (TASK-009)
+
+| Verificação | Resultado |
+|------------|-----------|
+| Secrets no código | ✅ Nenhum; `.env` no `.gitignore`; placeholders no `.env.example` |
+| Hashing de senha | ✅ PBKDF2-SHA256 (600k iterações) + salt aleatório + `hmac.compare_digest` |
+| JWT | ✅ HS256 assinado; exp/iat; `sub` usado para lookup no DB |
+| SQL injection | ✅ ORM parametrizado (UserRepository) |
+| RBAC | ✅ viewer=read, operator=write, admin=delete; 403 em insuficiência; 401 sem token |
+| Rate limiting | ✅ 429 em excesso; thread-safe (Lock); resetável em testes |
+| Stack traces em erros | ✅ Erros de domínio traduzidos; HTTPException para 401/403 |
+| Input validation | ✅ `UserCreate` (username pattern, password min 8); Pydantic enums |
+| XSS/injection | N/A — sem novos templates |
+
+### Novos Testes Adicionados (TASK-009)
+
+- `tests/unit/test_auth.py` — 16 testes (login, me, register, RBAC viewer/operator/admin, 401/403)
+- `tests/unit/test_state_machine.py` — 13 testes (transições válidas/inválidas, ciclos de vida PP-PI e QM)
+- `tests/unit/test_rate_limit.py` — 4 testes (janela, isolamento por chave, reset)
+- Atualização em `tests/unit/test_api_production.py` (endpoint status) e `tests/unit/test_api_quality.py` (transições estritas)
+
+**Total: 190 testes passando (era 158)**
+
+### Conclusão
+
+**Estado Geral:** ✅ **BOM** — TASK-009 entregou autenticação/autorização, máquinas de estado e rate limiting com segurança e sem overengineering. As três vulnerabilidades restantes (H-01, M-14/M-15, M-16) foram resolvidas.
+
+**Pronto para Produção:** ⚠️ Parcial — requer definir `SECRET_KEY` forte (≥32 bytes) e considerar rate limiter distribuído para multi-worker. Demais requisitos atendidos.
+
+**Próxima Tarefa:** TASK-010 — Simulation Engine (`app/simulation/`) + seed de dados sintéticos.
+
+---
+
+## Auditoria TASK-009 — Autenticação/Autorização + Rate Limiting + Máquinas de Estado
+
+**Data:** 2026-08-12
+**Revisor:** Auditor de Segurança/Qualidade (pós-implementação)
+**Escopo:** TASK-009 — todos os arquivos novos/modificados (auth, RBAC, state machine, rate limit, cascade, migration, scripts, testes).
+
+### Sumário
+
+| Severidade | Quantidade |
+|-----------|-----------|
+| CRITICAL | 0 |
+| HIGH | 0 |
+| MEDIUM | 2 |
+| LOW | 5 |
+| INFO | 9 |
+
+---
+
+## MEDIUM
+
+### M-20 — Rate limiter usa IP do proxy, não do cliente real
+
+**Arquivo:** `app/middleware/rate_limit.py:52`
+**Problema:** `request.client.host` retorna o IP do cliente direto. Atrás de reverse proxy (Nginx, Cloudflare Tunnel conforme `plano/02-arquitetura-infraestrutura.md`), esse valor é o IP do proxy — **todos os usuários compartilham o mesmo bucket de rate limit**.
+
+**Impacto:**
+- Um único usuário pode esgotar 60 req/min e bloquear todos os usuários atrás do proxy.
+- Um atacante pode provocar DoS em todos os usuários com um único IP.
+- Não há leitura de `X-Forwarded-For` / `X-Real-IP`.
+
+**Correção sugerida:** Adicionar leitura de `X-Forwarded-For` com lista de proxies confiáveis, ou usar biblioteca com suporte a proxy headers (ex: `slowapi` com configuração adequada).
+
+**Prioridade:** Média (relevante para produção com reverse proxy)
+
+---
+
+### M-21 — Memory leak no rate limiter (crescimento ilimitado de `_hits`)
+
+**Arquivo:** `app/middleware/rate_limit.py:25,32-41`
+**Problema:** `_hits: dict[str, deque[float]] = defaultdict(deque)`. Chaves (IPs) são adicionadas mas **nunca removidas**, mesmo quando a deque interna está vazia (todos os timestamps expirados). Com milhares de IPs únicos ao longo do tempo, o dicionário cresce indefinidamente.
+
+**Impacto:**
+- Servidor de longa duração acumula memória com chaves mortas.
+- `reset()` só é chamado em testes; em produção, nunca.
+
+**Correção sugerida:** Remover chaves vazias periodicamente ou implementar TTL global (ex: limpar chaves sem atividade nos últimos 5 minutos em background thread ou a cada N requisições).
+
+**Prioridade:** Média (degradação gradual em produção)
+
+---
+
+## LOW
+
+### L-22 — Timing side-channel em `authenticate` revela existência/atividade do usuário
+
+**Arquivo:** `app/services/auth_service.py:40-47`
+**Problema:** Short-circuit evaluation em `user is None or not user.is_active or not verify_password(...)`:
+- Usuário não existe → raise imediato (~0.1ms, sem PBKDF2)
+- Usuário existe mas inativo → raise imediato (~0.1ms, sem PBKDF2)
+- Usuário existe e ativo (senha errada) → PBKDF2 roda (~300ms)
+
+Diferença de ~3000x no tempo de resposta permite a um atacante distinguir "usuário existe e ativo" de "não existe", além de determinar o status de atividade.
+
+**Impacto:** Enumeração de usernames e detecção de contas inativas.
+
+**Correção sugerida:** Executar `verify_password` com hash dummy mesmo quando usuário não existe/inativo (constant-time login).
+
+**Prioridade:** Baixa (requer precisão de timing; rate limiting atenua)
+
+---
+
+### L-23 — `require_api_access` pode lançar ValueError em role inválido do DB
+
+**Arquivo:** `app/security/dependencies.py:88`
+**Problema:** `UserRole(user.role)` levanta `ValueError` se o valor no DB não corresponder a nenhum enum (ex: dado corrompido ou inserção direta bypassando o ORM). A exceção não é capturada, resultando em HTTP 500 em vez de 403.
+
+**Impacto:** Erro 500 em caso de dados inconsistentes, em vez de negação de acesso.
+
+**Correção sugerida:** Envolver em try/except ou validar na camada de repository.
+
+**Prioridade:** Baixa (CHECK constraint no DB previne na prática)
+
+---
+
+### L-24 — `verify_password` lê iterações do hash armazenado (risco de downgrade)
+
+**Arquivo:** `app/security/passwords.py:28-33`
+**Problema:** O formato armazenado é `pbkdf2_sha256$<iterations>$<salt>$<hash>`. `verify_password` usa `int(iterations)` do valor armazenado, não da constante `_ITERATIONS`. Se um atacante obtém acesso de escrita ao DB, pode reduzir iterações para facilitar brute-force offline.
+
+**Impacto:** Se o DB é comprometido, o atacante pode baixar iterações e acelerar brute-force.
+
+**Correção sugerida:** Validar `iterations >= _ITERATIONS` ou sempre usar `_ITERATIONS` do código (re-hash em migration).
+
+**Prioridade:** Baixa (requer comprometimento prévio do DB)
+
+---
+
+### L-25 — `PARTIAL` é estado terminal sem transições de saída
+
+**Arquivo:** `app/domain/state_machine.py:15`
+**Problema:** `PRODUCTION_ORDER_TRANSITIONS` define `IN_PROCESS → {COMPLETED, PARTIAL}`, mas `PARTIAL` não tem transições de saída. Uma ordem parcialmente completada não pode ser fechada (`CLOSED`) nem completada (`COMPLETED`) via API.
+
+**Impacto:** Ordens com status `PARTIAL` ficam "presas" sem possibilidade de progresso via API.
+
+**Correção sugerida:** Adicionar `PARTIAL → {COMPLETED}` (ou `{COMPLETED, CLOSED}`) ao mapa, conforme fluxo de negócio esperado.
+
+**Prioridade:** Baixa (nenhuma ordem atingirá PARTIAL enquanto não houver fluxo de produção parcial)
+
+---
+
+### L-26 — Cascade delete incompleto para `Batch`
+
+**Arquivo:** `app/domain/entities.py:151-154`
+**Problema:** `ProductionOrder.batches` tem `cascade="all, delete-orphan"`, e `Batch.quality_inspection` também. Porém, `ProductionConfirmation` (linha 195) e `MaterialConsumption` (linha 208) referenciam `batches.id` via FK **sem relationship e sem cascade**. Se uma ordem com batches com confirmações/consumos fosse deletada, o ORM tentaria deletar batches mas as FKs dessas tabelas bloqueariam com `IntegrityError`.
+
+**Impacto:** Cascade delete falharia em cenários com dados de confirmação/consumo. Atualmente é inócuo pois não há endpoint de delete order nem API para criar confirmações/consumos.
+
+**Correção sugerida:** Adicionar relationships `Batch.production_confirmations` e `Batch.material_consumptions` com `cascade="all, delete-orphan"` quando essas funcionalidades forem implementadas.
+
+**Prioridade:** Baixa (inócuo no estado atual; latente)
+
+---
+
+## INFO
+
+### I-29 — `SECRET_KEY` default abaixo do mínimo recomendado (HS256)
+
+**Arquivo:** `app/security/tokens.py:14`, `.env.example`
+**Observação:** `change-me-in-production` tem 23 bytes; RFC 7518 §3.2 recomenda ≥32 bytes para HS256. PyJWT emite `InsecureKeyLengthWarning`.
+**Ação:** Produção deve definir `SECRET_KEY` com ≥32 bytes aleatórios. Documentado.
+
+---
+
+### I-30 — Rate limiter in-memory não escala multi-worker
+
+**Arquivo:** `app/middleware/rate_limit.py`
+**Observação:** Estado do limiter é por processo. Multi-worker/multi-container teriam janelas independentes. Documentado.
+**Ação futura:** Backend distribuído (Redis) ou configuração de proxy para `X-Forwarded-For`.
+
+---
+
+### I-31 — Dashboard HTML permanece público
+
+**Arquivo:** `app/api/dashboard.py:12`
+**Observação:** `/dashboard/` e `/dashboard/order-360` servem KPIs agregados via renderização server-side sem autenticação. Os endpoints `/api/dashboard/*` por trás estão protegidos. Documentado.
+**Ação futura:** Login UI / proteção das páginas HTML.
+
+---
+
+### I-32 — Claim `role` no JWT é embutido mas nunca consumido
+
+**Arquivo:** `app/security/tokens.py:26`, `app/security/dependencies.py:58`
+**Observação:** `create_access_token` inclui `"role"` no payload, mas `get_current_user` re-lê o role do DB via `UserRepository`, nunca do token. O role no token é redundante.
+**Ação:** Manter como claim auditável (ou remover para reduzir payload). Sem impacto funcional.
+
+---
+
+### I-33 — Senha em `scripts/create_user.py` visível no `ps`
+
+**Arquivo:** `scripts/create_user.py:26`
+**Observação:** `--password` via CLI expõe a senha no `ps aux` do sistema. Limitação padrão de CLIs.
+**Ação futura:** Aceitar leitura de stdin (`getpass`) ou arquivo.
+
+---
+
+### I-34 — Sem lockout de conta após N tentativas falhas de login
+
+**Arquivo:** `app/services/auth_service.py:40-47`
+**Observação:** Tentativas ilimitadas de login. Combinado com L-22 (timing) e rate limit global de 60/min, um atacante com múltiplos IPs pode tentar brute-force.
+**Ação futura:** Contador de tentativas por usuário + lockout temporário (ex: 5 tentativas → 15 min lockout).
+
+---
+
+### I-35 — Sem teste de cascade delete (L-14)
+
+**Arquivo:** `tests/unit/`
+**Observação:** Nenhum teste verifica que `ProductionOrder → Batch → QualityInspection → NonConformity` cascade funciona. Latente porque não há endpoint de delete.
+**Ação futura:** Adicionar teste unitário quando endpoint de delete for implementado.
+
+---
+
+### I-36 — Sem teste de rate limit via middleware (apenas unitário)
+
+**Arquivo:** `tests/unit/test_rate_limit.py`
+**Observação:** Testes cobrem `SlidingWindowRateLimiter` diretamente, mas não há teste de integração que verifica o middleware retorna 429 em excesso via `TestClient`.
+**Ação futura:** Adicionar teste de integração.
+
+---
+
+### I-37 — Sem teste de token expirado
+
+**Arquivo:** `tests/unit/test_auth.py`
+**Observação:** Nenhum teste verifica que um token com `exp` passado retorna 401.
+**Ação futura:** Adicionar teste com `ACCESS_TOKEN_EXPIRE_MINUTES=0` ou token manualmente expirado.
+
+---
+
+### I-38 — Sem teste de token para usuário deletado/inativado
+
+**Arquivo:** `tests/unit/test_auth.py`
+**Observação:** Nenhum teste verifica que um token válido retorna 401 se o usuário foi deletado ou teve `is_active=False` após a emissão do token.
+**Ação futura:** Adicionar teste de revogação.
+
+---
+
+### I-39 — Sem teste de fluxo de desativação de usuário
+
+**Arquivo:** `app/`
+**Observação:** Não há endpoint para desativar/reativar usuário. `is_active` é settable apenas via DB direto. Documentado como feature futura.
+
+---
+
+## Análise Consolidada de Segurança (TASK-009)
+
+### ✅ Pontos Positivos
+
+| Verificação | Resultado |
+|------------|-----------|
+| Hashing de senha | ✅ PBKDF2-SHA256 (600k iterações) + salt 16 bytes + `hmac.compare_digest` |
+| JWT | ✅ HS256 assinado; exp/iat; `sub` usado para lookup no DB (não confia no token) |
+| RBAC | ✅ Hierarquia viewer < operator < admin; method-based; 403 em insuficiência |
+| SQL injection | ✅ ORM parametrizado em todos os repositories (UserRepository) |
+| Enumeração de username | ⚠️ Parcialmente mitigada (L-22: timing side-channel; sem lockout) |
+| Rate limiting | ✅ 429 em excesso; thread-safe; aplicado a todos `/api/*` (incluindo login) |
+| Validação de entrada | ✅ `UserCreate` (username pattern, password 8-128); Pydantic enums em state machine |
+| Stack traces em erros | ✅ `InvalidStateTransitionError` → 409; `DomainError` → 400; `HTTPException` → 401/403 |
+| Secrets | ✅ `.env` no `.gitignore`; `.env.example` com placeholders; nenhum segredo no código |
+| Integridade transacional | ✅ `session_dependency` com rollback automático (M-09); services commit/rollback |
+| Máquinas de estado | ✅ Transições validadas ANTES da mutação; estados terminais corretos |
+| Cascade delete | ✅ Configuração ORM correta para chain principal (ordem → batches → inspeção → NCs) |
+| CORS | N/A — sem endpoints cross-origin (dashboard HTML e API são same-origin) |
+| SSRF | ✅ Não aplicável (sem chamadas HTTP outbound) |
+| Path traversal | ✅ Não aplicável (sem operações de filesystem com input do usuário) |
+| Logs | ✅ Sem dados sensíveis (usernames e roles são não-sensíveis; passwords nunca logados) |
+
+### ⚠️ Vulnerabilidades Identificadas
+
+| Categoria | Severidade | Descrição |
+|-----------|-----------|-----------|
+| Rate limiting (proxy) | MEDIUM | M-20 — Rate limit usa IP do proxy, não do cliente real |
+| Rate limiting (memory) | MEDIUM | M-21 — Memory leak no dicionário de IPs |
+| Timing attack | LOW | L-22 — Enumeração de usernames via tempo de resposta |
+| Robustez | LOW | L-23 — ValueError em role inválido do DB → 500 |
+| Defense in depth | LOW | L-24 — Iterações PBKDF2 lidas do hash armazenado |
+| Regra de negócio | LOW | L-25 — PARTIAL terminal sem transições de saída |
+| Integridade referencial | LOW | L-26 — Cascade não inclui ProductionConfirmation/MaterialConsumption |
+| Configuração | INFO | I-29 — SECRET_KEY default < 32 bytes |
+| Escalabilidade | INFO | I-30 — Rate limiter não escala multi-worker |
+| Exposição de dados | INFO | I-31 — Dashboard HTML público |
+| Design | INFO | I-32 — Claim `role` no token é redundante |
+| CLI security | INFO | I-33 — Senha visível no ps (create_user.py) |
+| Brute force | INFO | I-34 — Sem lockout de conta |
+| Testes | INFO | I-35..I-39 — 5 gaps de cobertura de testes |
+
+### Análise de Performance
+
+| Verificação | Resultado |
+|------------|-----------|
+| PBKDF2 600k iterações | ✅ ~300ms por login (aceitável; OWASP recommended) |
+| JWT encode/decode | ✅ O(1); HS256 rápido |
+| Rate limiter | ⚠️ O(1) por request, mas memory leak (M-21) |
+| `get_current_user` | ✅ 1 query (SELECT by username, indexed) |
+| RBAC check | ✅ O(1); sem queries extras |
+
+### Análise de Testes (pós TASK-009)
+
+**Cobertura Atual:**
+- 190 testes passando (era 158)
+- Novos: `test_auth.py` (13), `test_state_machine.py` (11), `test_rate_limit.py` (4)
+- Cobre: login, register, me, RBAC (viewer/operator/admin), state machines PP-PI e QM, rate limiter class
+
+**Testes Ausentes:**
+- I-35: Cascade delete (L-14)
+- I-36: Rate limit via middleware (integração)
+- I-37: Token expirado
+- I-38: Token para usuário deletado/inativado
+- I-39: Fluxo de desativação
+
+### Consistência PP-PI / QM / CO
+
+| Verificação | Resultado |
+|------------|-----------|
+| ProductionOrder status transitions | ✅ Fluxo linear: CREATED → RELEASED → IN_PROCESS → COMPLETED/PARTIAL → CLOSED → DELIVERED |
+| QualityInspection status transitions | ✅ Fluxo: PENDING → IN_PROGRESS → PASSED/FAILED; FAILED → REWORK/SCRAP |
+| State machine isolation | ✅ Validated at service layer; repository allows any mutation (correct layering) |
+| Integration PP→QM→CO | ✅ Não alterada; state machines são ortogonais ao fluxo de integração |
+| Cascade delete consistency | ⚠️ Parcial (L-26: `ProductionConfirmation`/`MaterialConsumption` não incluidos) |
+
+---
+
+## Conclusão (Pós-Auditoria TASK-009)
+
+**Estado Geral:** ✅ **BOM** — TASK-009 resolveu as 3 vulnerabilidades pendentes de auditorias anteriores (H-01, M-14/M-15, M-16). Nenhum achado CRITICAL ou HIGH.
+
+**Achados:** 0 CRITICAL, 0 HIGH, 2 MEDIUM, 5 LOW, 9 INFO.
+
+**Pronto para Produção:** ⚠️ **Parcial** — requer:
+1. Definir `SECRET_KEY` ≥ 32 bytes (I-29)
+2. Resolver M-20 (rate limiter com proxy) antes de deploy com Cloudflare/Nginx
+3. Considerar M-21 (memory leak) para servidores de longa duração
+
+**Risco de Segurança:** ⚠️ **Baixo-Médio** — autenticação e RBAC implementados corretamente. Rate limiting funcional mas com limitações conhecidas (proxy, single-instance). Timing side-channel (L-22) é mitigado pelo rate limit.
+
+**Recomendação Final:** Corrigir M-20 e M-21 antes de deploy em produção com reverse proxy. Os demais itens (LOW/INFO) podem ser tratados em tasks futuras sem bloqueio.
+
+---
+
+## Correções Pós-Auditoria TASK-009
+
+**Data:** 2026-08-12
+**Status:** Corrigido — todos os itens MEDIUM e LOW tratados + INFO acionáveis
+**Validação:** `.venv/bin/pytest tests/` → **203 passed** (era 190); `compileall` OK; `npm run typecheck` OK; `npm run lint` OK; `alembic upgrade/downgrade` OK
+
+| Item | Severidade | Status | Correção Aplicada |
+|------|-----------|--------|-------------------|
+| M-20 Rate limiter usa IP do proxy | MEDIUM | ✅ Corrigido | `_client_key()` lê `X-Forwarded-For`/`X-Real-IP` quando `TRUST_PROXY_HEADERS=true` (configurável via env); fallback para `client.host` |
+| M-21 Memory leak no rate limiter | MEDIUM | ✅ Corrigido | `_cleanup()` remove chaves vazias/expiráveis a cada 60s (`_CLEANUP_INTERVAL_SECONDS`) |
+| L-22 Timing side-channel em login | LOW | ✅ Corrigido | `authenticate` sempre roda `verify_password` com hash dummy quando usuário não existe (`_DUMMY_PASSWORD_HASH`) |
+| L-23 ValueError em role inválido | LOW | ✅ Corrigido | `_resolve_role()` retorna `None` para role inválido; `require_roles`/`require_api_access` negam acesso (403) |
+| L-24 Iterações PBKDF2 do hash armazenado | LOW | ✅ Corrigido | `verify_password` rejeita hash com `iterations < _MIN_ITERATIONS` (600k) |
+| L-25 PARTIAL estado terminal | LOW | ✅ Corrigido | `PARTIAL → {COMPLETED}` adicionado ao mapa de transições |
+| L-26 Cascade incompleto para Batch | LOW | ✅ Corrigido | `Batch.production_confirmations` e `Batch.material_consumptions` com `cascade="all, delete-orphan"` |
+| I-29 SECRET_KEY < 32 bytes | INFO | ✅ Corrigido | Warning de log único quando SECRET_KEY < 32 bytes |
+| I-32 Claim `role` redundante no JWT | INFO | ✅ Corrigido | `role` removido do payload; `create_access_token(subject)` |
+| I-33 Senha no `ps` | INFO | ✅ Corrigido | `scripts/create_user.py` usa `getpass` quando `--password` omitido |
+| I-34 Sem lockout de conta | INFO | ✅ Corrigido | Colunas `failed_attempts`/`locked_until` + lockout de 15 min após 5 falhas (HTTP 423); reset no login bem-sucedido |
+
+### Testes Adicionados (I-35..I-39)
+
+- `tests/unit/test_cascade.py` — 2 testes (cascade order→batches→inspection→NCs e →confirmations/consumptions)
+- `tests/unit/test_rate_limit.py` — 5 novos testes (`_client_key` proxy headers, 429 via middleware, paths não-limitados)
+- `tests/unit/test_auth.py` — 5 novos testes (lockout, reset counter, token expirado, token usuário inativo/deletado)
+- `tests/unit/test_state_machine.py` — teste `PARTIAL → COMPLETED`
+
+**Total: 203 testes (era 190)**
+
+### Arquivos Alterados
+- `app/middleware/rate_limit.py` — M-20/M-21
+- `app/services/auth_service.py` — L-22/I-34 (constant-time + lockout)
+- `app/security/dependencies.py` — L-23
+- `app/security/passwords.py` — L-24
+- `app/security/tokens.py` — I-29/I-32
+- `app/domain/state_machine.py` — L-25
+- `app/domain/entities.py` — L-26 (cascade) + I-34 (colunas lockout)
+- `app/api/auth.py` — I-32
+- `scripts/create_user.py` — I-33
+- `.env.example` — TRUST_PROXY_HEADERS + comentário SECRET_KEY
+- `database/migrations/versions/a1b2c3d4e5f6_lockout.py` — colunas `failed_attempts`/`locked_until`
+
+### Revalidação de Segurança
+- Login constant-time: PBKDF2 sempre executado (usuário inexistente usa hash dummy)
+- Lockout de conta mitiga brute-force (423 após 5 falhas)
+- Rate limiter resolve IP real atrás de proxy + sem memory leak
+- `_resolve_role` garante 403 (não 500) para role corrompido
+- Migração `a1b2c3d4e5f6` aplicada e revertida com sucesso
+
+**Pendências restantes (INFO, documentadas como "ação futura"):**
+- I-30: rate limiter distribuído multi-worker (requer Redis) — fora do escopo
+- I-31: dashboard HTML público — login UI futura (TASK-010+)

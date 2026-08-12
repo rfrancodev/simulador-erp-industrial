@@ -149,6 +149,7 @@ class TestInspectionsApi:
 
     def test_update_inspection_result(self, client: TestClient, _setup_batch):
         client.post("/api/quality/inspections", json={"batch_id": 1, "inspection_lot": "QI-RES"})
+        client.put("/api/quality/inspections/1/result", json={"inspection_status": "IN_PROGRESS"})
         resp = client.put("/api/quality/inspections/1/result", json={
             "inspection_status": "PASSED",
             "pH": "4.21",
@@ -161,6 +162,11 @@ class TestInspectionsApi:
         assert body["inspection_status"] == "PASSED"
         assert body["pH"] == "4.21"
         assert body["alcohol_percent"] == "4.7"
+
+    def test_update_inspection_result_invalid_transition(self, client: TestClient, _setup_batch):
+        client.post("/api/quality/inspections", json={"batch_id": 1, "inspection_lot": "QI-TRANS"})
+        resp = client.put("/api/quality/inspections/1/result", json={"inspection_status": "PASSED"})
+        assert resp.status_code == 409
 
     def test_update_inspection_result_invalid_status(self, client: TestClient, _setup_batch):
         client.post("/api/quality/inspections", json={"batch_id": 1, "inspection_lot": "QI-BAD"})
@@ -181,6 +187,7 @@ class TestInspectionsApi:
 
     def test_update_inspection_result_whitelist_protects_identity(self, client: TestClient, _setup_batch):
         client.post("/api/quality/inspections", json={"batch_id": 1, "inspection_lot": "QI-LOT2"})
+        client.put("/api/quality/inspections/1/result", json={"inspection_status": "IN_PROGRESS"})
         resp = client.put("/api/quality/inspections/1/result", json={
             "inspection_status": "PASSED",
             "inspection_lot": "HACKED",

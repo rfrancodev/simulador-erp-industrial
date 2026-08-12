@@ -258,6 +258,37 @@ class TestProductionOrdersApi:
         assert resp.status_code == 200
         assert resp_empty.json()["total"] == 0
 
+    def test_update_order_status(self, client: TestClient):
+        now = datetime.now(UTC)
+        client.post("/api/production/orders", json={
+            "order_number": "PO-STATUS-UPD",
+            "material_id": 1,
+            "recipe_id": 1,
+            "planned_quantity": "1000",
+            "planned_start": now.isoformat(),
+            "planned_end": (now + timedelta(hours=8)).isoformat(),
+        })
+        resp = client.put("/api/production/orders/1/status", json={"status": "RELEASED"})
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "RELEASED"
+
+    def test_update_order_status_invalid_transition(self, client: TestClient):
+        now = datetime.now(UTC)
+        client.post("/api/production/orders", json={
+            "order_number": "PO-STATUS-BAD",
+            "material_id": 1,
+            "recipe_id": 1,
+            "planned_quantity": "1000",
+            "planned_start": now.isoformat(),
+            "planned_end": (now + timedelta(hours=8)).isoformat(),
+        })
+        resp = client.put("/api/production/orders/1/status", json={"status": "COMPLETED"})
+        assert resp.status_code == 409
+
+    def test_update_order_status_not_found(self, client: TestClient):
+        resp = client.put("/api/production/orders/999/status", json={"status": "RELEASED"})
+        assert resp.status_code == 404
+
 
 # ── Batches ──────────────────────────────────────────────────────────────────
 

@@ -80,6 +80,10 @@ class ProductionOrderCreate(ProductionOrderBase):
     pass
 
 
+class ProductionOrderStatusUpdate(BaseModel):
+    status: ProductionOrderStatus
+
+
 class ProductionOrder(ProductionOrderBase):
     model_config = ConfigDict(from_attributes=True)
 

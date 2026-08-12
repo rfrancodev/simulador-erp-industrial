@@ -24,6 +24,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
+from app.domain.auth import UserRole
 from app.domain.production.batch import BatchStatus
 from app.domain.production.material import MaterialType
 from app.domain.production.recipe import ProductionOrderStatus
@@ -41,6 +42,24 @@ def _enum_check(name: str, column: str, enum_cls: type) -> CheckConstraint:
 
 class Base(DeclarativeBase):
     pass
+
+
+class User(Base):
+    __tablename__ = "users"
+    __table_args__ = (
+        _enum_check("ck_users_role", "role", UserRole),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    username: Mapped[str] = mapped_column(String(50), unique=True, nullable=False, index=True)
+    password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
+    role: Mapped[str] = mapped_column(
+        String(20), nullable=False, default=UserRole.VIEWER.value, server_default=text("'viewer'")
+    )
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, server_default=text("true"))
+    failed_attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default=text("0"))
+    locked_until: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, server_default=func.now())
 
 
 class Material(Base):
@@ -130,8 +149,12 @@ class ProductionOrder(Base):
 
     material: Mapped["Material"] = relationship(back_populates="production_orders")
     recipe: Mapped["ProductionRecipe"] = relationship()
-    batches: Mapped[list["Batch"]] = relationship(back_populates="production_order")
-    cost_record: Mapped[Optional["CostRecord"]] = relationship(back_populates="production_order", uselist=False)
+    batches: Mapped[list["Batch"]] = relationship(
+        back_populates="production_order", cascade="all, delete-orphan"
+    )
+    cost_record: Mapped[Optional["CostRecord"]] = relationship(
+        back_populates="production_order", uselist=False, cascade="all, delete-orphan"
+    )
 
 
 class ProductionResource(Base):
@@ -166,7 +189,15 @@ class Batch(Base):
 
     production_order: Mapped["ProductionOrder"] = relationship(back_populates="batches")
     resource: Mapped["ProductionResource"] = relationship(back_populates="batches")
-    quality_inspection: Mapped[Optional["QualityInspection"]] = relationship(back_populates="batch", uselist=False)
+    quality_inspection: Mapped[Optional["QualityInspection"]] = relationship(
+        back_populates="batch", uselist=False, cascade="all, delete-orphan"
+    )
+    production_confirmations: Mapped[list["ProductionConfirmation"]] = relationship(
+        cascade="all, delete-orphan"
+    )
+    material_consumptions: Mapped[list["MaterialConsumption"]] = relationship(
+        cascade="all, delete-orphan"
+    )
 
 
 class ProductionConfirmation(Base):
@@ -215,7 +246,9 @@ class QualityInspection(Base):
     result_date: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
 
     batch: Mapped["Batch"] = relationship(back_populates="quality_inspection")
-    non_conformities: Mapped[list["NonConformity"]] = relationship(back_populates="inspection")
+    non_conformities: Mapped[list["NonConformity"]] = relationship(
+        back_populates="inspection", cascade="all, delete-orphan"
+    )
 
 
 class NonConformity(Base):

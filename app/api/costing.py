@@ -11,9 +11,14 @@ from app.domain.costing.cost import (
     CostRecordUpdate,
     CostSummary,
 )
+from app.security.dependencies import require_api_access
 from app.services.costing_service import CostingService
 
-router = APIRouter(prefix="/api/costing", tags=["CO"])
+router = APIRouter(
+    prefix="/api/costing",
+    tags=["CO"],
+    dependencies=[Depends(require_api_access)],
+)
 
 
 def _svc(session: Session = Depends(session_dependency)) -> CostingService:

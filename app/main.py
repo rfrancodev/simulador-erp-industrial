@@ -5,6 +5,7 @@ from fastapi.responses import JSONResponse
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from app.api.auth import router as auth_router
 from app.api.costing import router as costing_router
 from app.api.dashboard import api_router as dashboard_api_router
 from app.api.dashboard import router as dashboard_router
@@ -16,10 +17,12 @@ from app.core.exceptions import (
     DuplicateEntityError,
     EntityHasDependenciesError,
     EntityNotFoundError,
+    InvalidStateTransitionError,
     RecipeMaterialMismatchError,
 )
 from app.core.logging import setup_logging
 from app.database.connection import session_dependency
+from app.middleware.rate_limit import RateLimitMiddleware
 
 setup_logging()
 
@@ -29,6 +32,9 @@ app = FastAPI(
     version="0.1.0",
 )
 
+app.add_middleware(RateLimitMiddleware)
+
+app.include_router(auth_router)
 app.include_router(production_router)
 app.include_router(quality_router)
 app.include_router(costing_router)
@@ -60,6 +66,11 @@ async def handle_unit_mismatch(request, exc: ComponentUnitMismatchError):
 
 @app.exception_handler(EntityHasDependenciesError)
 async def handle_dependencies(request, exc: EntityHasDependenciesError):
+    return JSONResponse(status_code=409, content={"detail": str(exc)})
+
+
+@app.exception_handler(InvalidStateTransitionError)
+async def handle_invalid_transition(request, exc: InvalidStateTransitionError):
     return JSONResponse(status_code=409, content={"detail": str(exc)})
 
 

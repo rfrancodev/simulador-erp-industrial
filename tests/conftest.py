@@ -1,5 +1,6 @@
 """Pytest configuration and shared fixtures."""
 
+import os
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import Generator
@@ -16,6 +17,38 @@ from app.domain.entities import (
     ProductionRecipe,
     ProductionResource,
 )
+
+# Ensure a strong HMAC key is available for JWT tests (avoids PyJWT warnings).
+os.environ.setdefault("SECRET_KEY", "test-only-secret-key-that-is-long-enough-for-hs256")
+
+
+@pytest.fixture(autouse=True)
+def _admin_auth_override(request):
+    """Give every API test an authenticated admin by default.
+
+    Overrides ``get_current_user`` with an admin so existing endpoint tests do
+    not need to obtain real tokens. Tests that exercise real authentication
+    opt out with ``@pytest.mark.no_auth``. Also resets the in-memory rate
+    limiter before each test to avoid cross-test 429s.
+    """
+    from app.domain.auth import UserRole
+    from app.domain.entities import User
+    from app.main import app
+    from app.middleware.rate_limit import rate_limiter
+    from app.security.dependencies import get_current_user
+
+    rate_limiter.reset()
+
+    if request.node.get_closest_marker("no_auth") is not None:
+        yield
+        return
+
+    admin = User(id=1, username="test-admin", role=UserRole.ADMIN.value, is_active=True)
+    app.dependency_overrides[get_current_user] = lambda: admin
+    try:
+        yield
+    finally:
+        app.dependency_overrides.pop(get_current_user, None)
 
 
 @pytest.fixture
