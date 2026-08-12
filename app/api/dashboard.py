@@ -37,6 +37,7 @@ async def dashboard_home(
             "order_dist": analytics.order_status_distribution(),
             "inspection_dist": analytics.inspection_status_distribution(),
             "cost_variance": analytics.cost_variance_by_order(),
+            "monthly_trend": analytics.monthly_trend(),
         },
     )
 
@@ -79,3 +80,8 @@ def get_quality_stats(analytics: AnalyticsService = Depends(_analytics)):
 @api_router.get("/cost-stats")
 def get_cost_stats(analytics: AnalyticsService = Depends(_analytics)):
     return analytics.cost_stats()
+
+
+@api_router.get("/monthly-trend")
+def get_monthly_trend(analytics: AnalyticsService = Depends(_analytics)):
+    return analytics.monthly_trend()

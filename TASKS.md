@@ -388,7 +388,21 @@ Evitar tarefas gigantes como "Implementar todo o módulo PP-PI."
 - I-42..I-45: recipe_by_id O(1), to_decimal valida finito, add_months clampa dia, log mensal
 - 216 testes (era 212)
 
-### Próxima: TASK-011 — Dashboard consumindo dados simulados + KPIs de tendência
+### TASK-011 — Dashboard consumindo dados simulados + KPIs de tendência
+**Status:** DONE
+- `AnalyticsService.monthly_trend()` — agregação mensal (orders, volume_litros, pass_rate, custos planned/actual)
+- `GET /api/dashboard/monthly-trend` — endpoint de dados protegido por `require_api_access`
+- Gráficos de tendência no dashboard: Volume+Pass Rate (bar+line, eixo duplo) e Cost Planned vs Actual (lines)
+- Demonstra cenário de crise (causa e efeito) ao longo dos meses
+- 219 testes (era 216)
+
+### TASK-011.1 — Correções Pós-Auditoria
+**Status:** DONE
+- L-33: fallback explícito para `actual_quantity=None` · L-34: filtro `planned_start.isnot(None)`
+- I-51: loops de agregação consolidados · I-54: 3 testes de borda (fallback, sem inspeção, fronteira de ano)
+- 222 testes (era 219)
+
+### Próxima: TASK-012 — Integração automática PP→QM→CO via eventos
 
 ---
 

@@ -53,10 +53,25 @@
     </div>
 </div>
 
+<div class="chart-row">
+    <div class="chart-card full-width">
+        <h2>Monthly Trend — Production Volume &amp; Pass Rate</h2>
+        <div id="chart-trend"></div>
+    </div>
+</div>
+
+<div class="chart-row">
+    <div class="chart-card full-width">
+        <h2>Monthly Cost Trend — Planned vs Actual</h2>
+        <div id="chart-cost-trend"></div>
+    </div>
+</div>
+
 <script>
     const orderData = {{ order_dist | tojson }};
     const inspData = {{ inspection_dist | tojson }};
     const varianceData = {{ cost_variance | tojson }};
+    const trendData = {{ monthly_trend | tojson }};
 
     Plotly.newPlot('chart-orders', [{
         type: 'pie',
@@ -78,5 +93,19 @@
         { type: 'bar', name: 'Planned', x: varianceData.map(d => d.order), y: varianceData.map(d => d.planned), marker: { color: '#a0aec0' } },
         { type: 'bar', name: 'Actual', x: varianceData.map(d => d.order), y: varianceData.map(d => d.actual), marker: { color: '#3182ce' } }
     ], { barmode: 'group', margin: { t: 0 } });
+
+    Plotly.newPlot('chart-trend', [
+        { type: 'bar', name: 'Volume (L)', x: trendData.map(d => d.month), y: trendData.map(d => d.volume_liters), marker: { color: '#3182ce' }, yaxis: 'y' },
+        { type: 'scatter', mode: 'lines+markers', name: 'Pass Rate (%)', x: trendData.map(d => d.month), y: trendData.map(d => d.pass_rate), marker: { color: '#38a169' }, yaxis: 'y2' }
+    ], {
+        margin: { t: 0 },
+        yaxis: { title: 'Volume (L)' },
+        yaxis2: { title: 'Pass Rate (%)', overlaying: 'y', side: 'right' }
+    });
+
+    Plotly.newPlot('chart-cost-trend', [
+        { type: 'scatter', mode: 'lines+markers', name: 'Planned', x: trendData.map(d => d.month), y: trendData.map(d => d.planned_cost), marker: { color: '#a0aec0' } },
+        { type: 'scatter', mode: 'lines+markers', name: 'Actual', x: trendData.map(d => d.month), y: trendData.map(d => d.actual_cost), marker: { color: '#e53e3e' } }
+    ], { margin: { t: 0 } });
 </script>
 {% endblock %}

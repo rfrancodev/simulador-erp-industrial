@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections import defaultdict
 from decimal import Decimal
 from typing import Optional
 
@@ -330,3 +331,77 @@ class AnalyticsService:
             }
             for r in rows
         ]
+
+    # ── Monthly trend ─────────────────────────────────────────────────────
+
+    def monthly_trend(self) -> list[dict]:
+        """Aggregate PP-PI / QM / CO metrics per calendar month.
+
+        Returns a list ordered by month (``YYYY-MM``) with order count, produced
+        volume, quality pass rate and planned/actual cost — enabling trend
+        analysis across the simulated period (including a crisis window).
+        """
+        orders = list(
+            self._session.execute(
+                select(ProductionOrder)
+                .where(ProductionOrder.planned_start.isnot(None))
+                .order_by(ProductionOrder.planned_start)
+            ).scalars().all()
+        )
+
+        cost_by_order = {
+            c.production_order_id: c
+            for c in self._session.execute(select(CostRecord)).scalars().all()
+        }
+
+        inspection_status_by_order: dict[int, list[str]] = defaultdict(list)
+        batch_rows = self._session.execute(
+            select(Batch.production_order_id, QualityInspection.inspection_status)
+            .join(QualityInspection, QualityInspection.batch_id == Batch.id, isouter=True)
+        ).all()
+        for order_id, status in batch_rows:
+            if status is not None:
+                inspection_status_by_order[order_id].append(status)
+
+        buckets: dict[str, dict] = {}
+        for order in orders:
+            key = order.planned_start.strftime("%Y-%m")
+            bucket = buckets.setdefault(key, {
+                "month": key,
+                "orders": 0,
+                "volume_liters": 0.0,
+                "inspected": 0,
+                "passed": 0,
+                "planned_cost": 0.0,
+                "actual_cost": 0.0,
+            })
+            bucket["orders"] += 1
+            volume = order.actual_quantity if order.actual_quantity is not None else order.planned_quantity
+            bucket["volume_liters"] += float(volume)
+            cost = cost_by_order.get(order.id)
+            if cost is not None:
+                bucket["planned_cost"] += float(cost.planned_total_cost)
+                if cost.actual_total_cost is not None:
+                    bucket["actual_cost"] += float(cost.actual_total_cost)
+            for status in inspection_status_by_order.get(order.id, []):
+                bucket["inspected"] += 1
+                if status == "PASSED":
+                    bucket["passed"] += 1
+
+        result = []
+        for key in sorted(buckets):
+            bucket = buckets[key]
+            pass_rate = (
+                bucket["passed"] / bucket["inspected"] * 100
+                if bucket["inspected"]
+                else 0.0
+            )
+            result.append({
+                "month": key,
+                "orders": bucket["orders"],
+                "volume_liters": round(bucket["volume_liters"], 1),
+                "pass_rate": round(pass_rate, 1),
+                "planned_cost": round(bucket["planned_cost"], 2),
+                "actual_cost": round(bucket["actual_cost"], 2),
+            })
+        return result

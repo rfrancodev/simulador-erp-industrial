@@ -2518,3 +2518,204 @@ Diferença de ~3000x no tempo de resposta permite a um atacante distinguir "usu�
 - I-47: `_PRESERVED_TABLES` hardcoded (ok para o escopo atual)
 - I-48: master data hardcoded no código (pode virar YAML futuramente)
 - I-49: `create_all` vs Alembic (documentado)
+
+---
+
+## Auditoria TASK-011 — Dashboard consumindo dados simulados + KPIs de tendência
+
+**Data:** 2026-08-12
+**Revisor:** Auditor de Segurança/Qualidade (pós-implementação)
+**Escopo:** `app/analytics/service.py` (monthly_trend), `app/api/dashboard.py` (novo endpoint + contexto), `templates/dashboard/home.html` (gráficos de tendência), `tests/unit/test_dashboard.py`.
+
+### Sumário
+
+| Severidade | Quantidade |
+|-----------|-----------|
+| CRITICAL | 0 |
+| HIGH | 0 |
+| MEDIUM | 0 |
+| LOW | 2 |
+| INFO | 6 |
+
+---
+
+## LOW
+
+### L-33 — `actual_quantity` com valor falsy (Decimal "0") retorna planned_quantity
+
+**Arquivo:** `app/analytics/service.py:377`
+**Problema:** `float(order.actual_quantity or order.planned_quantity)` usa `or`, que trata `Decimal("0")` como falsy. Se uma ordem tiver `actual_quantity = 0` (sem produção), o volume do bucket mostrará o `planned_quantity` em vez de 0.
+
+**Impacto:** Dado enganoso no gráfico de tendência (volume inflado para ordens sem produção). Na simulação, yield é clampado a [0.5, 1.0], então `actual_quantity` nunca é 0 na prática. Em dados criados via API, é teoricamente possível.
+
+**Correção sugerida:** Usar verificação explícita: `float(order.actual_quantity if order.actual_quantity is not None else order.planned_quantity)`.
+
+**Prioridade:** Baixa
+
+---
+
+### L-34 — Sem verificação defensiva para `planned_start is None`
+
+**Arquivo:** `app/analytics/service.py:366`
+**Problema:** `order.planned_start.strftime("%Y-%m")` falharia com `AttributeError` se `planned_start` fosse `None`. A coluna é `nullable=False` e o schema Pydantic exige o campo, mas uma inserção direta no DB (bypassando validação) poderia criar registros com `NULL`.
+
+**Impacto:** Erro 500 ao carregar o dashboard se houver dados corrompidos.
+
+**Correção sugerida:** Filtro `where(ProductionOrder.planned_start.isnot(None))` ou verificação defensiva no loop.
+
+**Prioridade:** Baixa (cenário improvável)
+
+---
+
+## INFO
+
+### I-50 — `monthly_trend` carrega todos os dados em memória
+
+**Arquivo:** `app/analytics/service.py:344-362`
+**Observação:** 3 queries carregam todas as ordens, cost records e batch+inspection rows na aplicação, e a agregação é feita em Python. Para o volume simulado (180 ordens, ~1k registros), é instantâneo. Para >100k ordens, a memória e o tempo de processamento cresceriam linearmente.
+**Ação futura:** Para escala maior, migrar para SQL `GROUP BY` com `extract` (portável entre engines) ou pandas.
+
+---
+
+### I-51 — `monthly_trend` itera ordens duas vezes
+
+**Arquivo:** `app/analytics/service.py:365-390`
+**Observação:** O primeiro loop agrega volume/custo; o segundo agrega qualidade. Poderia ser unificado se os dados de inspeção estivessem disponíveis no primeiro loop (via join). A duplicação é clara e correta, mas adiciona uma passagem extra.
+**Ação futura:** Consolidar em um loop com join de inspeções.
+
+---
+
+### I-52 — `dashboard_home` chama `monthly_trend` a cada carregamento de página
+
+**Arquivo:** `app/api/dashboard.py:40`
+**Observação:** A cada GET `/dashboard/`, `monthly_trend()` é executado (3 queries + agregação em Python). Com rate limiting (60/min/IP), o impacto é limitado. Para datasets grandes, caching (Redis ou in-memory com TTL) seria útil.
+**Ação futura:** Adicionar cache se a página for acessada frequentemente.
+
+---
+
+### I-53 — Dashboard HTML (`/dashboard/`) permanece público
+
+**Arquivo:** `app/api/dashboard.py:28-42`
+**Observação:** A página HTML renderiza `monthly_trend` server-side sem autenticação. Os endpoints de dados (`/api/dashboard/monthly-trend`) estão protegidos. Continuação do I-31 (TASK-009).
+**Ação futura:** Login UI / proteção das páginas HTML.
+
+---
+
+### I-54 — Testes não cobrem casos de borda
+
+**Arquivo:** `tests/unit/test_dashboard.py:102-117`
+**Observação:** Testes cobrem o caso feliz (empty, simulado com 2 meses, endpoint). Não cobrem:
+- Ordens com `actual_quantity=None` (fallback para planned)
+- Ordens sem inspeção (pass_rate=0)
+- Ordens sem cost record
+- Fronteira de ano (Dez 2025 → Jan 2026)
+- Ordenação cronológica dos buckets
+
+**Ação futura:** Adicionar testes de casos de borda para maior robustez.
+
+---
+
+### I-55 — Sem logging para o endpoint `monthly-trend`
+
+**Arquivo:** `app/api/dashboard.py:85-87`
+**Observação:** O endpoint não registra logs (query time, order count, etc.). Para um endpoint read-only de analytics, é aceitável. Em produção, logging de tempo de execução seria útil para monitoramento.
+**Ação futura:** Adicionar `logger.info` se o endpoint for monitorado.
+
+---
+
+## Análise Consolidada (TASK-011)
+
+### ✅ Pontos Positivos
+
+| Verificação | Resultado |
+|------------|-----------|
+| SQL injection | ✅ ORM parametrizado (`select()`); sem input de usuário nas queries |
+| XSS | ✅ `tojson` escapa dados no template; Plotly renderiza JSON sanitizado |
+| Secrets | ✅ Nenhum no código novo |
+| CORS / SSRF / Path traversal | N/A (sem endpoints cross-origin, sem chamadas outbound, sem filesystem) |
+| Autenticação | ✅ `/api/dashboard/monthly-trend` protegido por `require_api_access` (router-level) |
+| Autorização | ✅ GET → viewer+ (via RBAC method-based) |
+| Integridade transacional | ✅ Read-only; session com auto-rollback |
+| Validação de entrada | ✅ Endpoint sem parâmetros (read-only) |
+| Divisão por zero | ✅ `pass_rate` trata `inspected=0` (retorna 0.0) |
+| Integração PP→QM→CO | ✅ Trend agrega dados dos 3 módulos por mês; demonstra cenário de crise |
+
+### ⚠️ Vulnerabilidades Identificadas
+
+| Categoria | Severidade | Descrição |
+|-----------|-----------|-----------|
+| Dados | LOW | L-33 — `actual_quantity=0` tratado como falsy (retorna planned) |
+| Robustez | LOW | L-34 — Sem verificação defensiva para `planned_start=None` |
+| Performance | INFO | I-50 — Agregação em memória (não escala >100k) |
+| Performance | INFO | I-51 — Iteração dupla sobre ordens |
+| Cache | INFO | I-52 — Sem cache para `monthly_trend` |
+| Exposição | INFO | I-53 — Dashboard HTML público (I-31) |
+| Testes | INFO | I-54 — Casos de borda não cobertos |
+| Logs | INFO | I-55 — Sem logging do endpoint |
+
+### Análise de Testes
+
+**Cobertura:**
+- `test_monthly_trend_empty` (DB vazio → [])
+- `test_monthly_trend_with_simulated_data` (2 meses, 3 ordens/mês, verifica estrutura)
+- `test_api_monthly_trend` (endpoint retorna 200 + lista)
+
+**Testes Ausentes:**
+- I-54: fallback para `actual_quantity=None`
+- I-54: ordens sem inspeção (pass_rate=0)
+- I-54: fronteira de ano
+- I-54: ordenação cronológica
+
+**Resultado:** 219 testes passando (era 216).
+
+---
+
+## Conclusão (Pós-Auditoria TASK-011)
+
+**Estado Geral:** ✅ **BOM** — TASK-011 entrega KPIs de tendência mensal com integração PP→QM→CO, demonstrando o cenário de crise ao longo do tempo. Nenhum achado CRITICAL/HIGH/MEDIUM.
+
+**Achados:** 0 CRITICAL, 0 HIGH, 0 MEDIUM, 2 LOW, 6 INFO.
+
+**Pronto para Produção:** ✅ Sim (como dashboard de demo). Os achados LOW são melhorias incrementais.
+
+**Segurança:** ✅ Sem vulnerabilidades. Endpoint protegido por auth; template XSS-safe; dados sintéticos.
+
+**Risco de Segurança:** Baixo — dashboard read-only com dados agregados sintéticos.
+
+**Recomendação Final:** Abordar L-33 (fallback correto para actual_quantity) e L-34 (defensivo para planned_start) na próxima iteração. Demais achados são melhorias incrementais.
+
+---
+
+## Correções Pós-Auditoria TASK-011
+
+**Data:** 2026-08-12
+**Status:** Corrigido — 2 LOW + 2 INFO acionáveis tratados
+**Validação:** `.venv/bin/pytest tests/` → **222 passed** (era 219); `compileall` OK; `npm run typecheck` OK; `npm run lint` OK; `alembic upgrade/downgrade` OK
+
+| Item | Severidade | Status | Correção Aplicada |
+|------|-----------|--------|-------------------|
+| L-33 fallback `actual_quantity or planned` | LOW | ✅ Corrigido | `order.actual_quantity if order.actual_quantity is not None else order.planned_quantity` |
+| L-34 `planned_start=None` | LOW | ✅ Corrigido | `.where(ProductionOrder.planned_start.isnot(None))` na query de ordens |
+| I-51 iteração dupla | INFO | ✅ Corrigido | Loops de volume/custo e qualidade consolidados em um único loop |
+| I-54 testes de borda | INFO | ✅ Corrigido | 3 testes adicionados: fallback actual=None, ordem sem inspeção (pass_rate=0), fronteira de ano (Dez→Jan ordenado) |
+
+### Testes Adicionados
+
+- `tests/unit/test_dashboard.py` +3 testes: `test_monthly_trend_falls_back_to_planned_quantity`, `test_monthly_trend_order_without_inspection`, `test_monthly_trend_spans_year_boundary_ordered`
+
+**Total: 222 testes (era 219)**
+
+### Arquivos Alterados
+- `app/analytics/service.py` — fallback explícito, filtro defensivo, loop consolidado
+- `tests/unit/test_dashboard.py` — imports + helper `_create_order` + 3 testes de borda
+
+### Revalidação de Segurança
+- Fallback de volume correto (actual_quantity=0 não é tratado como falsy)
+- Query defensiva contra `planned_start` NULL
+- Sem novas superfícies de ataque
+
+**Pendências restantes (INFO, "ação futura"):**
+- I-50: agregação em memória (não escala >100k ordens)
+- I-52: sem cache para `monthly_trend`
+- I-53: dashboard HTML público (I-31)
+- I-55: sem logging do endpoint

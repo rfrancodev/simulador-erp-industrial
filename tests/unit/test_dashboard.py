@@ -1,5 +1,8 @@
 """Unit tests for AnalyticsService and Dashboard API endpoints."""
 
+from datetime import UTC, datetime, timedelta
+from decimal import Decimal
+
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, event
@@ -8,8 +11,19 @@ from sqlalchemy.pool import StaticPool
 
 from app.analytics.service import AnalyticsService
 from app.database.connection import session_dependency
-from app.domain.entities import Base
+from app.domain.entities import (
+    Base,
+    Batch,
+    CostRecord,
+    Material,
+    ProductionOrder,
+    ProductionRecipe,
+    ProductionResource,
+    QualityInspection,
+)
 from app.main import app
+from app.simulation.config import SimulationConfig
+from app.simulation.engine import SimulationEngine
 
 
 @pytest.fixture
@@ -46,6 +60,72 @@ def client(session: Session):
     with TestClient(app) as c:
         yield c
     app.dependency_overrides.clear()
+
+
+def _create_order(session, order_number, planned_start, actual_quantity, has_inspection):
+    """Create a full order (material/recipe/resource/order/batch + optional inspection + cost)."""
+    material = Material(
+        material_code=f"M-{order_number}",
+        material_name="Test",
+        material_type="FINISHED_PRODUCT",
+        base_unit="L",
+        plant="P001",
+    )
+    session.add(material)
+    session.flush()
+    recipe = ProductionRecipe(recipe_code=f"R-{order_number}", material_id=material.id, version="1.0")
+    session.add(recipe)
+    session.flush()
+    resource = ProductionResource(
+        resource_code=f"RES-{order_number}", resource_name="R", work_center="WC", resource_type="F"
+    )
+    session.add(resource)
+    session.flush()
+    order = ProductionOrder(
+        order_number=order_number,
+        material_id=material.id,
+        recipe_id=recipe.id,
+        planned_quantity=Decimal("10000"),
+        planned_start=planned_start,
+        planned_end=planned_start + timedelta(hours=8),
+        status="COMPLETED",
+        actual_quantity=actual_quantity,
+    )
+    session.add(order)
+    session.flush()
+    batch = Batch(
+        batch_number=f"B-{order_number}",
+        production_order_id=order.id,
+        resource_id=resource.id,
+        planned_quantity=Decimal("10000"),
+        actual_quantity=Decimal("9000"),
+        status="COMPLETED",
+    )
+    session.add(batch)
+    session.flush()
+    if has_inspection:
+        session.add(
+            QualityInspection(
+                batch_id=batch.id, inspection_lot=f"QI-{order_number}", inspection_status="PASSED"
+            )
+        )
+    session.add(
+        CostRecord(
+            production_order_id=order.id,
+            planned_material_cost=Decimal("100"),
+            planned_labor_cost=Decimal("50"),
+            planned_machine_cost=Decimal("30"),
+            planned_energy_cost=Decimal("20"),
+            planned_total_cost=Decimal("200"),
+            actual_material_cost=Decimal("110"),
+            actual_labor_cost=Decimal("50"),
+            actual_machine_cost=Decimal("30"),
+            actual_energy_cost=Decimal("20"),
+            actual_total_cost=Decimal("210"),
+        )
+    )
+    session.commit()
+    return order
 
 
 class TestAnalyticsService:
@@ -97,6 +177,45 @@ class TestAnalyticsService:
         stats = svc.cost_stats()
         assert stats["cost_by_material"] == []
 
+    def test_monthly_trend_empty(self, session: Session):
+        svc = AnalyticsService(session)
+        assert svc.monthly_trend() == []
+
+    def test_monthly_trend_with_simulated_data(self, session: Session):
+        SimulationEngine(session, SimulationConfig(months=2, seed=42, orders_per_month=3)).run()
+        trend = AnalyticsService(session).monthly_trend()
+        assert len(trend) == 2
+        assert trend[0]["month"] == "2026-01"
+        assert trend[1]["month"] == "2026-02"
+        for bucket in trend:
+            assert bucket["orders"] == 3
+            assert bucket["volume_liters"] > 0
+            assert bucket["planned_cost"] > 0
+            assert bucket["actual_cost"] > 0
+            assert 0 <= bucket["pass_rate"] <= 100
+
+    def test_monthly_trend_falls_back_to_planned_quantity(self, session: Session):
+        start = datetime(2026, 1, 10, tzinfo=UTC)
+        _create_order(session, "PO-1", start, actual_quantity=None, has_inspection=True)
+        trend = AnalyticsService(session).monthly_trend()
+        assert trend[0]["volume_liters"] == 10000.0
+
+    def test_monthly_trend_order_without_inspection(self, session: Session):
+        start = datetime(2026, 1, 10, tzinfo=UTC)
+        _create_order(session, "PO-1", start, actual_quantity=Decimal("9000"), has_inspection=False)
+        trend = AnalyticsService(session).monthly_trend()
+        assert trend[0]["pass_rate"] == 0.0
+
+    def test_monthly_trend_spans_year_boundary_ordered(self, session: Session):
+        _create_order(
+            session, "PO-DEC", datetime(2025, 12, 15, tzinfo=UTC), Decimal("9000"), True
+        )
+        _create_order(
+            session, "PO-JAN", datetime(2026, 1, 15, tzinfo=UTC), Decimal("9000"), True
+        )
+        trend = AnalyticsService(session).monthly_trend()
+        assert [b["month"] for b in trend] == ["2025-12", "2026-01"]
+
 
 class TestDashboardAPI:
     def test_home_page_renders(self, client: TestClient):
@@ -140,3 +259,8 @@ class TestDashboardAPI:
         assert resp.status_code == 200
         data = resp.json()
         assert "cost_by_material" in data
+
+    def test_api_monthly_trend(self, client: TestClient):
+        resp = client.get("/api/dashboard/monthly-trend")
+        assert resp.status_code == 200
+        assert isinstance(resp.json(), list)

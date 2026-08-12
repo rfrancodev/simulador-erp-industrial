@@ -4,6 +4,94 @@ This file documents the completion of each task, serving as the source of truth 
 
 ---
 
+## TASK-011.1 — Correções Pós-Auditoria (L-33, L-34, I-51, I-54)
+
+**Status:** DONE
+
+**Data:** 2026-08-12
+
+**IMPLEMENTADO:**
+- **L-33:** fallback explícito `actual_quantity if is not None else planned_quantity` (Decimal "0" não é mais tratado como falsy)
+- **L-34:** `.where(ProductionOrder.planned_start.isnot(None))` na query de ordens
+- **I-51:** loops de volume/custo e qualidade consolidados em um único loop
+- **I-54:** 3 testes de borda adicionados
+
+**ARQUIVOS ALTERADOS:**
+- `app/analytics/service.py` — `monthly_trend` corrigido
+- `tests/unit/test_dashboard.py` — helper `_create_order` + 3 testes
+
+**TESTES:**
+```
+222 passed in 20.27s
+```
+- `compileall` OK · `typecheck` OK · `lint` OK · `alembic upgrade/downgrade` OK
+
+**SECURITY AUDIT:**
+- 0 CRITICAL/HIGH/MEDIUM/LOW restantes
+- Pendências INFO (I-50, I-52, I-53, I-55): documentadas como "ação futura"
+
+**PRÓXIMA TAREFA:**
+TASK-012 — Integração automática PP→QM→CO via eventos
+
+---
+
+## TASK-011 — Dashboard consumindo dados simulados + KPIs de tendência
+
+**Status:** DONE
+
+**Data:** 2026-08-12
+
+**IMPLEMENTADO:**
+- `AnalyticsService.monthly_trend()` — agregação mensal de PP-PI/QM/CO (orders, volume_litros, pass_rate, planned/actual cost), ordenada por mês (`YYYY-MM`)
+- `GET /api/dashboard/monthly-trend` — endpoint de dados (protegido via `require_api_access` no router)
+- `templates/dashboard/home.html` — 2 novos gráficos de tendência:
+  - Volume (bar) + Pass Rate (line, eixo secundário) por mês
+  - Cost Planned vs Actual (lines) por mês
+- `dashboard_home` passa `monthly_trend` ao contexto do template
+- Agregação em Python (portável SQLite/PostgreSQL) com 3 queries simples; adequada ao volume simulado
+
+**ARQUIVOS ALTERADOS:**
+- `app/analytics/service.py` — `monthly_trend()` + import `defaultdict`
+- `app/api/dashboard.py` — endpoint `/monthly-trend` + contexto
+- `templates/dashboard/home.html` — gráficos de tendência
+- `tests/unit/test_dashboard.py` — 3 testes novos
+
+**DOCUMENTOS CONSULTADOS:**
+- `plano/09-dashboard.md` — KPIs e telas
+- `plano/10-simulacao.md` — cenário de crise (causa e efeito)
+- `plano/08-integracao-eventos.md` — fluxo PP-PI→QM→CO
+
+**TESTES:**
+```
+219 passed in 20.00s
+```
+- `.venv/bin/python -m compileall app/` → OK
+- `.venv/bin/pytest tests/` → **219 passed** (era 216)
+- `npm run typecheck` → OK
+- `npm run lint` → OK
+- `alembic upgrade/downgrade` → OK
+- Smoke test: 3 meses crise → pass_rate 95.7% → 95.5% → 85.7%; custo subindo (demonstra tendência)
+
+**AUTO REVIEW:**
+- `monthly_trend()` simples e portável (agregação em Python, sem SQL específico de engine)
+- Endpoint protegido pelo RBAC existente (GET → viewer+)
+- Template usa `tojson` (XSS-safe) e Plotly; dados dinâmicos via server-side render
+
+**SECURITY AUDIT:**
+- SQL injection: ✅ ORM parametrizado, sem input de usuário
+- XSS: ✅ `tojson` escapa os dados no template
+- Secrets: ✅ Nenhum
+- Validação: ✅ Sem parâmetros de entrada (endpoint read-only)
+
+**PENDÊNCIAS:**
+- Dashboard HTML (`/dashboard/`) permanece público (I-31) — login UI futura
+- Tendência agrega em Python; para >100k ordens, migrar para SQL `GROUP BY` com `extract`
+
+**PRÓXIMA TAREFA:**
+TASK-012 — Integração automática PP→QM→CO via eventos (auto-trigger de inspeção + cost record)
+
+---
+
 ## TASK-010.1 — Correções Pós-Auditoria (L-27..L-32, I-42..I-45)
 
 **Status:** DONE
