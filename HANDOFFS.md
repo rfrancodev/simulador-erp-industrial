@@ -4,6 +4,83 @@ This file documents the completion of each task, serving as the source of truth 
 
 ---
 
+## TASK-006 — QM Service + REST API Endpoints
+
+**Status:** DONE
+
+**Data:** 2026-08-12
+
+**IMPLEMENTADO:**
+- `app/services/quality_service.py` — `QualityService` com 8 métodos cobrindo o domínio QM
+  - **Quality Inspections**: criar (valida batch existe), listar, buscar por id/lote/batch, registrar resultado
+  - **Non-Conformities**: adicionar (valida inspection existe), listar por inspection
+  - Transaction boundary: commit em sucesso, rollback em erro (padrão M-05)
+  - Tradução de `IntegrityError` → `DuplicateEntityError`
+  - Validação de status/parâmetros via whitelist (M-02 reutilizado)
+- `app/api/quality.py` — Router FastAPI com 9 endpoints para domínio QM
+  - `POST /api/quality/inspections` — criar inspeção (status inicial PENDING)
+  - `GET /api/quality/inspections` — listar com paginação
+  - `GET /api/quality/inspections/{id}` — buscar por id
+  - `GET /api/quality/inspections/lot/{inspection_lot}` — buscar por lote
+  - `GET /api/quality/inspections/batch/{batch_id}` — buscar por batch (com non-conformities)
+  - `PUT /api/quality/inspections/{id}/result` — registrar resultado (status + parâmetros)
+  - `GET /api/quality/inspections/{id}/non-conformities` — listar não-conformidades
+  - `POST /api/quality/inspections/{id}/non-conformities` — adicionar não-conformidade
+- `app/main.py` — Router QM montado
+- `tests/unit/test_api_quality.py` — **20 testes** cobrindo todos os endpoints QM
+  - Inspections: create + batch inválido + duplicate + list + get by id/lot/batch + result update
+  - Validação de resultado: status inválido (422), pH fora do range (422), whitelist protege identity
+  - Non-conformities: add + inspection inválida + enum inválido + list vazio/cheio
+
+**ARQUIVOS CRIADOS:**
+- `app/services/quality_service.py`
+- `app/api/quality.py`
+- `tests/unit/test_api_quality.py`
+
+**ARQUIVOS ALTERADOS:**
+- `app/main.py` — mount do router QM
+
+**DOCUMENTOS CONSULTADOS:**
+- `plano/06-dominio-qm.md` — fluxo de inspeção, parâmetros sintéticos, indicadores
+- `plano/04-arquitetura-software.md` — estrutura de routers (`app/api/quality.py`)
+- `TASKS.md` — ciclo Task → Test → Audit → Handoff
+
+**TESTES:**
+```
+============================== 113 passed in 3.56s ==============================
+```
+- `.venv/bin/python -m compileall app/` → OK
+- `.venv/bin/pytest tests/ -v` → **113 passed** (era 93)
+- `npm run typecheck` → OK
+- `npm run lint` → OK
+
+**AUTO REVIEW:**
+- Padrão idêntico ao TASK-005 (service layer + thin API + exception handlers)
+- Whitelist de campos mutáveis (M-02) protege campos de identidade na atualização de resultado
+- Validação Pydantic reforça ranges físicos (pH 0-14, alcohol 0-100) — parâmetros sintéticos documentados
+- Exceções de domínio traduzidas para HTTP codes apropriados (404, 409, 422)
+- Sem duplicação de lógica entre endpoints e service
+- Testes cobrem casos de sucesso, erro e borda
+
+**SECURITY AUDIT:**
+- Inputs validados via Pydantic (Field constraints, enums, tipos, ranges)
+- SQL via ORM parametrizado (sem SQL injection)
+- Whitelist impede sobrescrever campos de identidade (id, batch_id, inspection_lot)
+- Erros de domínio traduzidos sem expor stack traces
+- Sem secrets, tokens ou credenciais
+- Logs sem dados sensíveis (inspection_lot, defect_code)
+
+**PENDÊNCIAS:**
+- TASK-007: Serviço CO + endpoints de custo
+- TASK-008: Dashboard API (KPIs agregados)
+- TASK-009: Simulation Engine
+- Integração PP→QM→CO (eventos) documentada em `plano/08-integracao-eventos.md`
+
+**PRÓXIMA TAREFA:**
+TASK-007 — Criar serviço CO + REST endpoints para Controlling (Cost Management)
+
+---
+
 ## TASK-005 — REST API Endpoints PP-PI (FastAPI)
 
 **Status:** DONE
@@ -407,7 +484,8 @@ simulador-erp-industrial/
 │   ├── core/                      # exceptions + logging
 │   ├── api/
 │   │   ├── __init__.py
-│   │   └── production.py          # PP-PI REST endpoints (19 endpoints)
+│   │   ├── production.py          # PP-PI REST endpoints (19 endpoints)
+│   │   └── quality.py             # QM REST endpoints (9 endpoints)
 │   ├── domain/
 │   │   ├── entities.py            # Todos os modelos SQLAlchemy + CHECK constraints
 │   │   ├── production/
@@ -424,7 +502,8 @@ simulador-erp-industrial/
 │   │   ├── quality_repository.py
 │   │   └── costing_repository.py
 │   ├── services/
-│   │   └── production_service.py  # ProductionService (19 métodos)
+│   │   ├── production_service.py  # ProductionService (19 métodos)
+│   │   └── quality_service.py     # QualityService (8 métodos)
 │   ├── database/
 │   │   └── connection.py          # SQLAlchemy engine + session factory + session_scope
 │   ├── simulation/               # (vazio — TASK-008)
@@ -444,7 +523,8 @@ simulador-erp-industrial/
 │       ├── test_recipe.py
 │       ├── test_costing_repository.py
 │       ├── test_production_service.py
-│       └── test_api_production.py  # 36 testes de API PP-PI
+│       ├── test_api_production.py  # 36 testes de API PP-PI
+│       └── test_api_quality.py     # 20 testes de API QM
 ├── database/
 │   └── migrations/                # Alembic migrations
 ├── scripts/                      # (vazio)

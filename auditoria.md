@@ -545,3 +545,46 @@ Nenhum item CRITICAL encontrado. Os 3 HIGH são corrigíveis sem retrabalho sign
 | Logs com dados sensíveis | ✅ Apenas códigos (material_code, order_number) |
 
 **Resultado:** Nenhum item de segurança encontrado. API pronta para TASK-006 (QM).
+
+---
+
+## Auditoria TASK-006 — QM Service + REST API Endpoints
+
+**Data:** 2026-08-12
+**Revisor:** Auditor de Segurança/Qualidade
+**Escopo:** `app/api/quality.py`, `app/services/quality_service.py`, `app/main.py`
+
+### Sumário
+
+| Severidade | Quantidade |
+|-----------|-----------|
+| CRITICAL | 0 |
+| HIGH | 0 |
+| MEDIUM | 0 |
+| LOW | 0 |
+| INFO | 1 |
+
+---
+
+### INFO
+
+**I-12 — Integração PP→QM (auto-trigger de inspeção) pendente**
+**Arquivo:** `app/services/quality_service.py`
+**Observação:** O plano `06-dominio-qm.md` define que toda ordem de produção gera automaticamente uma inspeção de qualidade vinculada ao batch. Atualmente a criação é manual via endpoint.
+**Ação futura:** Na TASK-008 (Integração/Simulação) ou quando os eventos forem implementados.
+
+---
+
+### Revalidação de Segurança
+
+| Verificação | Resultado |
+|------------|-----------|
+| Secrets no código | ✅ Nenhum |
+| SQL injection | ✅ ORM parametrizado |
+| Input validation | ✅ Pydantic (Field, enums, ranges físicos pH 0-14) |
+| Stack traces em erros | ✅ Erros de domínio traduzidos (404/409/422) |
+| Fields imutáveis | ✅ Whitelist `_MUTABLE_INSPECTION_FIELDS` protege identidade |
+| Logs com dados sensíveis | ✅ Apenas códigos (inspection_lot, defect_code) |
+| CORS excessivo | N/A — sem endpoints de dados ainda |
+
+**Resultado:** Nenhum item de segurança encontrado. API pronta para TASK-007 (CO).

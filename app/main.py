@@ -4,6 +4,7 @@ from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 
 from app.api.production import router as production_router
+from app.api.quality import router as quality_router
 from app.core.exceptions import (
     DomainError,
     DuplicateEntityError,
@@ -22,6 +23,7 @@ app = FastAPI(
 )
 
 app.include_router(production_router)
+app.include_router(quality_router)
 
 
 # ── Global exception handlers ────────────────────────────────────────────
