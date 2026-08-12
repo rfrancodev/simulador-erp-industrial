@@ -75,3 +75,21 @@ class ProductionConfirmation(ProductionConfirmationBase):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
+
+
+class MaterialConsumptionBase(BaseModel):
+    batch_id: int = Field(..., gt=0)
+    material_id: int = Field(..., gt=0)
+    quantity: Decimal = Field(..., gt=0, decimal_places=3)
+    unit: str = Field(..., max_length=3)
+    consumption_time: datetime
+
+
+class MaterialConsumptionCreate(MaterialConsumptionBase):
+    pass
+
+
+class MaterialConsumption(MaterialConsumptionBase):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int

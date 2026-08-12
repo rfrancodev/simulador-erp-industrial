@@ -33,6 +33,26 @@
         <div class="value {{ 'positive' if kpis.cost.variance_percent <= 0 else 'negative' }}">{{ "%+.1f"|format(kpis.cost.variance_percent) }}%</div>
         <div class="sub">{{ "R$ %+.0f"|format(kpis.cost.variance) }}</div>
     </div>
+    <div class="kpi-card">
+        <div class="label">OEE</div>
+        <div class="value">{{ kpis.oee.oee }}%</div>
+        <div class="sub">A {{ kpis.oee.availability }}% · P {{ kpis.oee.performance }}% · Q {{ kpis.oee.quality }}%</div>
+    </div>
+    <div class="kpi-card">
+        <div class="label">Machine Utilization</div>
+        <div class="value">{{ kpis.machine_utilization }}%</div>
+        <div class="sub">resources with production</div>
+    </div>
+    <div class="kpi-card">
+        <div class="label">Cost per Liter</div>
+        <div class="value">{{ "R$ %.2f"|format(kpis.cost_per_liter) }}</div>
+        <div class="sub">actual cost / volume</div>
+    </div>
+    <div class="kpi-card">
+        <div class="label">Quality Cost</div>
+        <div class="value {{ 'negative' if kpis.quality_cost > 0 else '' }}">{{ "R$ %.0f"|format(kpis.quality_cost) }}</div>
+        <div class="sub">rework/scrap variance</div>
+    </div>
 </div>
 
 <div class="chart-row">

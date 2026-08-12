@@ -128,6 +128,52 @@ def _create_order(session, order_number, planned_start, actual_quantity, has_ins
     return order
 
 
+def _create_oee_scenario(session, actual_quantity):
+    """One completed order (no delay) + one batch + one passed inspection."""
+    material = Material(
+        material_code="M-OEE", material_name="OEE Material",
+        material_type="FINISHED_PRODUCT", base_unit="L", plant="P001",
+    )
+    session.add(material)
+    session.flush()
+    recipe = ProductionRecipe(recipe_code="R-OEE", material_id=material.id, version="1.0")
+    session.add(recipe)
+    session.flush()
+    resource = ProductionResource(
+        resource_code="RES-OEE", resource_name="R", work_center="WC", resource_type="F"
+    )
+    session.add(resource)
+    session.flush()
+    start = datetime(2026, 1, 10, 8, 0, tzinfo=UTC)
+    order = ProductionOrder(
+        order_number="PO-OEE",
+        material_id=material.id,
+        recipe_id=recipe.id,
+        planned_quantity=Decimal("10000"),
+        planned_start=start,
+        planned_end=start + timedelta(hours=8),
+        actual_start=start,
+        actual_end=start + timedelta(hours=8),
+        status="COMPLETED",
+    )
+    session.add(order)
+    session.flush()
+    batch = Batch(
+        batch_number="B-OEE",
+        production_order_id=order.id,
+        resource_id=resource.id,
+        planned_quantity=Decimal("10000"),
+        actual_quantity=actual_quantity,
+        status="COMPLETED",
+    )
+    session.add(batch)
+    session.flush()
+    session.add(
+        QualityInspection(batch_id=batch.id, inspection_lot="QI-OEE", inspection_status="PASSED")
+    )
+    session.commit()
+
+
 class TestAnalyticsService:
     def test_executive_kpis_empty(self, session: Session):
         svc = AnalyticsService(session)
@@ -180,6 +226,45 @@ class TestAnalyticsService:
     def test_monthly_trend_empty(self, session: Session):
         svc = AnalyticsService(session)
         assert svc.monthly_trend() == []
+
+    def test_oee_empty(self, session: Session):
+        svc = AnalyticsService(session)
+        oee = svc.oee()
+        assert oee["oee"] == 0.0
+        assert oee["availability"] == 0.0
+
+    def test_machine_utilization_empty(self, session: Session):
+        assert AnalyticsService(session).machine_utilization() == 0.0
+
+    def test_cost_per_liter_empty(self, session: Session):
+        assert AnalyticsService(session).cost_per_liter() == 0.0
+
+    def test_quality_cost_empty(self, session: Session):
+        assert AnalyticsService(session).quality_cost() == 0.0
+
+    def test_advanced_indicators_with_simulated_data(self, session: Session):
+        SimulationEngine(session, SimulationConfig(months=1, seed=42, orders_per_month=5)).run()
+        svc = AnalyticsService(session)
+        oee = svc.oee()
+        assert 0 <= oee["oee"] <= 100
+        assert 0 <= oee["availability"] <= 100
+        assert 0 < svc.machine_utilization() <= 100
+        assert svc.cost_per_liter() > 0
+        assert svc.quality_cost() >= 0
+
+    def test_oee_expected_values(self, session: Session):
+        _create_oee_scenario(session, Decimal("9600"))
+        oee = AnalyticsService(session).oee()
+        assert oee["availability"] == 100.0  # no delay
+        assert oee["performance"] == 96.0  # 9600 / 10000
+        assert oee["quality"] == 100.0  # all passed
+        assert oee["oee"] == 96.0  # 1.0 * 0.96 * 1.0
+
+    def test_oee_clamped_at_100(self, session: Session):
+        _create_oee_scenario(session, Decimal("11000"))  # overproduction
+        oee = AnalyticsService(session).oee()
+        assert oee["performance"] == 110.0
+        assert oee["oee"] == 100.0  # clamped
 
     def test_monthly_trend_with_simulated_data(self, session: Session):
         SimulationEngine(session, SimulationConfig(months=2, seed=42, orders_per_month=3)).run()

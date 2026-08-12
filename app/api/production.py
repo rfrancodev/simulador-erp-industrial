@@ -7,7 +7,16 @@ from sqlalchemy.orm import Session
 
 from app.database.connection import session_dependency
 from app.domain.common import PaginatedResponse, paginate
-from app.domain.production.batch import Batch, BatchCreate, ProductionResource, ProductionResourceCreate
+from app.domain.production.batch import (
+    Batch,
+    BatchCreate,
+    MaterialConsumption,
+    MaterialConsumptionCreate,
+    ProductionConfirmation,
+    ProductionConfirmationCreate,
+    ProductionResource,
+    ProductionResourceCreate,
+)
 from app.domain.production.material import Material, MaterialCreate, MaterialUpdate
 from app.domain.production.recipe import (
     ProductionOrder,
@@ -146,6 +155,54 @@ def get_batch_by_number(batch_number: str, svc: ProductionService = Depends(_svc
 @router.post("/batches", response_model=Batch, status_code=201)
 def create_batch(data: BatchCreate, svc: ProductionService = Depends(_svc)):
     return svc.create_batch(data)
+
+
+# ── Production Confirmations ──────────────────────────────────────────────
+
+@router.get("/batches/{batch_id}/confirmations", response_model=PaginatedResponse[ProductionConfirmation])
+def list_confirmations_by_batch(
+    batch_id: int,
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=500),
+    svc: ProductionService = Depends(_svc),
+):
+    return paginate(
+        svc.list_confirmations_by_batch(batch_id, skip, limit),
+        svc.confirmations.count_by_batch(batch_id),
+        skip,
+        limit,
+    )
+
+
+@router.post("/confirmations", response_model=ProductionConfirmation, status_code=201)
+def create_confirmation(
+    data: ProductionConfirmationCreate, svc: ProductionService = Depends(_svc)
+):
+    return svc.create_confirmation(data)
+
+
+# ── Material Consumptions ─────────────────────────────────────────────────
+
+@router.get("/batches/{batch_id}/consumptions", response_model=PaginatedResponse[MaterialConsumption])
+def list_consumptions_by_batch(
+    batch_id: int,
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=500),
+    svc: ProductionService = Depends(_svc),
+):
+    return paginate(
+        svc.list_consumptions_by_batch(batch_id, skip, limit),
+        svc.consumptions.count_by_batch(batch_id),
+        skip,
+        limit,
+    )
+
+
+@router.post("/consumptions", response_model=MaterialConsumption, status_code=201)
+def create_consumption(
+    data: MaterialConsumptionCreate, svc: ProductionService = Depends(_svc)
+):
+    return svc.create_consumption(data)
 
 
 # ── Production Resources ─────────────────────────────────────────────────

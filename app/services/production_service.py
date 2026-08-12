@@ -25,13 +25,20 @@ from app.core.exceptions import (
 from app.domain.entities import (
     Batch,
     Material,
+    MaterialConsumption,
+    ProductionConfirmation,
     ProductionOrder,
     ProductionRecipe,
     ProductionResource,
     RecipeComponent,
     RecipeOperation,
 )
-from app.domain.production.batch import BatchCreate, ProductionResourceCreate
+from app.domain.production.batch import (
+    BatchCreate,
+    MaterialConsumptionCreate,
+    ProductionConfirmationCreate,
+    ProductionResourceCreate,
+)
 from app.domain.production.material import MaterialCreate, MaterialUpdate
 from app.domain.production.recipe import (
     ProductionOrderCreate,
@@ -45,7 +52,9 @@ from app.domain.state_machine import (
 )
 from app.repositories.production_repository import (
     BatchRepository,
+    MaterialConsumptionRepository,
     MaterialRepository,
+    ProductionConfirmationRepository,
     ProductionOrderRepository,
     ProductionRecipeRepository,
     ProductionResourceRepository,
@@ -62,6 +71,8 @@ class ProductionService:
         self.orders = ProductionOrderRepository(session)
         self.batches = BatchRepository(session)
         self.resources = ProductionResourceRepository(session)
+        self.confirmations = ProductionConfirmationRepository(session)
+        self.consumptions = MaterialConsumptionRepository(session)
 
     # ── Materials ──────────────────────────────────────────────────────
 
@@ -224,6 +235,67 @@ class ProductionService:
         except Exception:
             self._session.rollback()
             raise
+
+    # ── Production Confirmations ────────────────────────────────────────
+
+    def list_confirmations_by_batch(self, batch_id: int, skip: int = 0, limit: int = 100) -> list[ProductionConfirmation]:
+        if self.batches.get_by_id(batch_id) is None:
+            raise EntityNotFoundError("Batch", batch_id)
+        return self.confirmations.get_by_batch(batch_id, skip, limit)
+
+    def create_confirmation(self, data: ProductionConfirmationCreate) -> ProductionConfirmation:
+        if self.batches.get_by_id(data.batch_id) is None:
+            raise EntityNotFoundError("Batch", data.batch_id)
+
+        confirmation = ProductionConfirmation(
+            batch_id=data.batch_id,
+            operation=data.operation,
+            quantity=data.quantity,
+            unit=data.unit,
+            confirmation_time=data.confirmation_time,
+            is_final=data.is_final,
+            notes=data.notes,
+        )
+        try:
+            created = self.confirmations.add(confirmation)
+            self._session.commit()
+        except Exception:
+            self._session.rollback()
+            raise
+        logger.info("Production confirmation for batch %s recorded", data.batch_id)
+        return created
+
+    # ── Material Consumptions ───────────────────────────────────────────
+
+    def list_consumptions_by_batch(self, batch_id: int, skip: int = 0, limit: int = 100) -> list[MaterialConsumption]:
+        if self.batches.get_by_id(batch_id) is None:
+            raise EntityNotFoundError("Batch", batch_id)
+        return self.consumptions.get_by_batch(batch_id, skip, limit)
+
+    def create_consumption(self, data: MaterialConsumptionCreate) -> MaterialConsumption:
+        if self.batches.get_by_id(data.batch_id) is None:
+            raise EntityNotFoundError("Batch", data.batch_id)
+        material = self.materials.get_by_id(data.material_id)
+        if material is None:
+            raise EntityNotFoundError("Material", data.material_id)
+        if data.unit != material.base_unit:
+            raise ComponentUnitMismatchError(data.material_id, data.unit, material.base_unit)
+
+        consumption = MaterialConsumption(
+            batch_id=data.batch_id,
+            material_id=data.material_id,
+            quantity=data.quantity,
+            unit=data.unit,
+            consumption_time=data.consumption_time,
+        )
+        try:
+            created = self.consumptions.add(consumption)
+            self._session.commit()
+        except Exception:
+            self._session.rollback()
+            raise
+        logger.info("Material consumption for batch %s recorded", data.batch_id)
+        return created
 
     # ── Production Resources ───────────────────────────────────────────
 

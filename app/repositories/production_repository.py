@@ -8,6 +8,7 @@ from app.domain.entities import (
     Batch,
     Material,
     MaterialConsumption,
+    ProductionConfirmation,
     ProductionOrder,
     ProductionRecipe,
     ProductionResource,
@@ -227,5 +228,49 @@ class ProductionResourceRepository(BaseRepository[ProductionResource]):
             select(func.count())
             .select_from(ProductionResource)
             .where(ProductionResource.work_center == work_center)
+        )
+        return self._session.scalar(stmt) or 0
+
+
+class ProductionConfirmationRepository(BaseRepository[ProductionConfirmation]):
+    def __init__(self, session: Session):
+        super().__init__(ProductionConfirmation, session)
+
+    def get_by_batch(self, batch_id: int, skip: int = 0, limit: int = 100) -> list[ProductionConfirmation]:
+        stmt = (
+            select(ProductionConfirmation)
+            .where(ProductionConfirmation.batch_id == batch_id)
+            .offset(skip)
+            .limit(limit)
+        )
+        return list(self._session.execute(stmt).scalars().all())
+
+    def count_by_batch(self, batch_id: int) -> int:
+        stmt = (
+            select(func.count())
+            .select_from(ProductionConfirmation)
+            .where(ProductionConfirmation.batch_id == batch_id)
+        )
+        return self._session.scalar(stmt) or 0
+
+
+class MaterialConsumptionRepository(BaseRepository[MaterialConsumption]):
+    def __init__(self, session: Session):
+        super().__init__(MaterialConsumption, session)
+
+    def get_by_batch(self, batch_id: int, skip: int = 0, limit: int = 100) -> list[MaterialConsumption]:
+        stmt = (
+            select(MaterialConsumption)
+            .where(MaterialConsumption.batch_id == batch_id)
+            .offset(skip)
+            .limit(limit)
+        )
+        return list(self._session.execute(stmt).scalars().all())
+
+    def count_by_batch(self, batch_id: int) -> int:
+        stmt = (
+            select(func.count())
+            .select_from(MaterialConsumption)
+            .where(MaterialConsumption.batch_id == batch_id)
         )
         return self._session.scalar(stmt) or 0

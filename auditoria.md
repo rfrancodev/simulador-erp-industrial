@@ -3209,3 +3209,170 @@ environment:
 **Pendências restantes (INFO, "ação futura"):**
 - I-63: multi-stage build (otimização de imagem)
 - I-66/I-67: hadolint + docker-compose config no CI (sem pipeline CI atual)
+
+---
+
+## Auditoria TASK-015 — API ProductionConfirmation + MaterialConsumption
+
+**Data:** 2026-08-12
+**Revisor:** Auditor de Segurança/Qualidade (pós-implementação)
+**Escopo:** `app/domain/production/batch.py` (schema), `app/repositories/production_repository.py` (repositórios), `app/services/production_service.py` (service methods), `app/api/production.py` (endpoints), `tests/unit/test_api_confirmations.py`.
+
+### Sumário
+
+| Severidade | Quantidade |
+|-----------|-----------|
+| CRITICAL | 0 |
+| HIGH | 0 |
+| MEDIUM | 0 |
+| LOW | 0 |
+| INFO | 1 |
+
+### ✅ Pontos Positivos
+
+| Verificação | Resultado |
+|------------|-----------|
+| SQL injection | ✅ ORM parametrizado |
+| Validação de entrada | ✅ Pydantic (`gt=0`, `decimal_places=3`, `max_length`) |
+| Autenticação/Autorização | ✅ Router protegido por `require_api_access` (RBAC) |
+| Regras de negócio | ✅ Batch existe (404), material existe (404), unit vs base_unit (422) |
+| Consistência | ✅ Validação de unit consistente com RecipeComponent (M-11/L-05) |
+| Paginação | ✅ Endpoints GET com `PaginatedResponse` |
+| Logs | ✅ `logger.info` para criações |
+| Testes | ✅ 8 testes (CRUD, 404, 422, paginação) |
+
+### ⚠️ INFO
+
+#### I-69 — `create_confirmation`/`create_consumption` sem try/except
+
+**Arquivo:** `app/services/production_service.py:246-290`
+**Observação:** Os métodos de criação não têm try/except para `IntegrityError`, diferente de `create_batch` que tem. Os schemas não têm unique constraints, então não há risco real de duplicate. No entanto, se outro processo deletar o batch entre a validação e o commit (race condition), a FK constraint falharia sem rollback explícito.
+**Ação futura:** Adicionar try/except para consistência com o padrão do projeto (M-05).
+
+### Conclusão (TASK-015)
+
+**Estado:** ✅ **BOM** — API bem estruturada, seguindo o padrão do projeto (repository + service + thin API + paginação). Validação de unidade consistente com RecipeComponent. Nenhum achado CRITICAL/HIGH/MEDIUM/LOW.
+
+---
+
+## Auditoria TASK-016 — Indicadores avançados (OEE, Machine Utilization, Cost per Liter, Quality Cost)
+
+**Data:** 2026-08-12
+**Revisor:** Auditor de Segurança/Qualidade (pós-implementação)
+**Escopo:** `app/analytics/service.py` (4 métodos), `templates/dashboard/home.html` (4 KPI cards), `tests/unit/test_dashboard.py` (5 novos testes).
+
+### Sumário
+
+| Severidade | Quantidade |
+|-----------|-----------|
+| CRITICAL | 0 |
+| HIGH | 0 |
+| MEDIUM | 0 |
+| LOW | 1 |
+| INFO | 2 |
+
+---
+
+## LOW
+
+### L-42 — `oee()` não clamp resultado em 100%
+
+**Arquivo:** `app/analytics/service.py:169-174`
+**Problema:** `oee = availability * performance * quality`, sem limite superior. Via API, é possível criar batch com `actual_quantity > planned_quantity`, resultando em `performance > 1` e `OEE > 100%`. O OEE conceitualmente não deveria exceder 100%.
+
+**Impacto:** Dashboard pode exibir OEE > 100% (conceitualmente incorreto). Na simulação, o yield é clampado [0.5, 1.0], então isso não ocorre. Mas via API manual, pode acontecer.
+
+**Correção sugerida:** Clampar o OEE em 100%:
+```python
+oee = min(1.0, availability * performance * quality)
+```
+
+**Prioridade:** Baixa
+
+---
+
+## INFO
+
+### I-71 — OEE carrega todas as ordens completadas na memória
+
+**Arquivo:** `app/analytics/service.py:154-160`
+**Observação:** A query carrega todas as ordens COMPLETED com actual_start/actual_end na memória para calcular availability. Para 180 ordens (simulação), é rápido. Para 10k+ ordens (produção real), pode ser lento.
+**Ação futura:** Otimizar com SQL (calcular planned_duration/actual_duration diretamente na query).
+
+---
+
+### I-72 — OEE sem teste com valores esperados específicos
+
+**Arquivo:** `tests/unit/test_dashboard.py:199-207`
+**Observação:** O teste `test_advanced_indicators_with_simulated_data` verifica que os valores estão em ranges razoáveis (`0 <= oee <= 100`), mas não testa valores esperados específicos para um dataset conhecido.
+**Ação futura:** Adicionar teste com dados sintéticos controlados e valores esperados exatos.
+
+---
+
+## Análise Consolidada (TASK-015 + TASK-016)
+
+### ✅ Pontos Positivos
+
+| Verificação | Resultado |
+|------------|-----------|
+| SQL injection | ✅ ORM parametrizado (incluindo subquery) |
+| Division by zero | ✅ Tratada em todos os cálculos |
+| OEE derivado dos dados | ✅ Availability do delay real, performance do yield, quality do pass rate — sem valores hardcoded |
+| Integração no dashboard | ✅ 4 KPIs adicionados ao `executive_kpis()` + home.html |
+| Testes | ✅ 13 testes novos (8 + 5) |
+
+### ⚠️ Achados
+
+| Categoria | Severidade | Descrição |
+|-----------|-----------|-----------|
+| Métrica | LOW | L-42 — OEE pode exceder 100% (performance sem limite superior) |
+| Performance | INFO | I-71 — OEE carrega ordens na memória |
+| Testes | INFO | I-72 — OEE sem teste de valores esperados |
+| Padrão | INFO | I-69 — create sem try/except (TASK-015) |
+
+### Conclusão (TASK-015 + TASK-016)
+
+**Estado Geral:** ✅ **BOM** — Ambas as tasks entregam funcionalidade sólida com boa cobertura de testes. Nenhum achado CRITICAL/HIGH/MEDIUM.
+
+**Achados:** 0 CRITICAL, 0 HIGH, 0 MEDIUM, 1 LOW, 3 INFO.
+
+**Pronto para Produção:** ✅ Sim. O achado LOW é uma melhoria de apresentação, não um problema funcional.
+
+**Segurança:** ✅ Sem vulnerabilidades. Endpoints protegidos por RBAC; dados sintéticos.
+
+**Risco de Segurança:** Baixo — APIs protegidas, dados sintéticos, sem input de usuário sensível.
+
+**Recomendação Final:** Abordar L-42 (clamp OEE em 100%) na próxima iteração. Demais achados são melhorias incrementais.
+
+---
+
+## Correções Pós-Auditoria TASK-015/TASK-016
+
+**Data:** 2026-08-12
+**Status:** Corrigido — 1 LOW + 2 INFO tratados
+**Validação:** `.venv/bin/pytest tests/` → **243 passed** (era 241); `compileall` OK; `npm run typecheck` OK; `npm run lint` OK
+
+| Item | Severidade | Status | Correção Aplicada |
+|------|-----------|--------|-------------------|
+| L-42 OEE pode exceder 100% | LOW | ✅ Corrigido | `oee = min(1.0, availability * performance * quality)` |
+| I-69 create sem try/except | INFO | ✅ Corrigido | `create_confirmation`/`create_consumption` com `try/except Exception: rollback(); raise` |
+| I-72 OEE sem teste de valores | INFO | ✅ Corrigido | Testes `test_oee_expected_values` (96%) e `test_oee_clamped_at_100` (clamp) |
+
+### Testes Adicionados
+
+- `tests/unit/test_dashboard.py` +2 testes: `test_oee_expected_values`, `test_oee_clamped_at_100`
+- Helper `_create_oee_scenario` para cenário OEE controlado
+
+**Total: 243 testes (era 241)**
+
+### Arquivos Alterados
+- `app/analytics/service.py` — clamp OEE
+- `app/services/production_service.py` — try/except nos creates
+- `tests/unit/test_dashboard.py` — 2 testes + helper
+
+### Revalidação de Segurança
+- OEE agora respeita o limite conceitual de 100%
+- Creates com rollback garantido em caso de falha (padrão M-05)
+
+**Pendências restantes (INFO, "ação futura"):**
+- I-71: OEE carrega ordens na memória (otimizar com SQL quando necessário)

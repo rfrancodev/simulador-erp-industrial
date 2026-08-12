@@ -437,7 +437,54 @@ Evitar tarefas gigantes como "Implementar todo o módulo PP-PI."
 - I-64: mem_limit 512m · I-65: seção Environment Variables no README · I-68: nota de produção
 - 228 testes (era 228 — infraestrutura, sem código Python)
 
-### Próxima: TASK-014 — Documentação `docs/` (ARCHITECTURE, BUSINESS_PROCESS, DATA_MODEL, SAP_MAPPING, RUNBOOK)
+### Pendências Registradas (não executar agora)
+
+**Documentação `docs/` + LICENSE** (previsto em `plano/12`) — **REGISTRADA, não executar agora**:
+- `docs/ARCHITECTURE.md`, `docs/BUSINESS_PROCESS.md`, `docs/DATA_MODEL.md`, `docs/SAP_MAPPING.md`, `docs/RUNBOOK.md`
+- `LICENSE`
+
+**Automação externa** (`plano/11`) — **OPCIONAL, não executar**:
+- Integração n8n (alerta de quality failure)
+- Integração Power BI
+
+### Sequência de Execução (atualizada)
+
+```
+TASK-015 → API ProductionConfirmation + MaterialConsumption
+TASK-016 → Indicadores avançados (OEE, Machine Utilization, Cost per Liter, Quality Cost)
+TASK-017 → Telas por módulo (Production, Quality, Cost)
+TASK-018 → Integração PP→QM→CO passo 6 (rework cost automático)
+    ↓ (após concluídas as anteriores)
+TASK-019 → Infraestrutura real (deploy VPS/Cloudflare/PostgreSQL central)
+TASK-020 → CI/hardening (multi-stage build, hadolint, docker compose config)
+```
+
+### TASK-015 — API ProductionConfirmation + MaterialConsumption
+**Status:** DONE
+- Schema `MaterialConsumption` adicionado em `app/domain/production/batch.py`
+- Repositórios `ProductionConfirmationRepository` + `MaterialConsumptionRepository`
+- Service: `create_confirmation`/`list_confirmations_by_batch`, `create_consumption`/`list_consumptions_by_batch`
+- Validação de unit vs `material.base_unit` (reusa `ComponentUnitMismatchError` → 422)
+- 4 endpoints: `POST/GET confirmations`, `POST/GET consumptions` (com paginação)
+- 236 testes (era 228). 8 testes novos
+
+### TASK-016 — Indicadores avançados (OEE, Machine Utilization, Cost per Liter, Quality Cost)
+**Status:** DONE
+- `AnalyticsService.oee()` — Availability (planned/actual duration) × Performance (yield) × Quality (pass rate)
+- `AnalyticsService.machine_utilization()` — % de recursos com produção
+- `AnalyticsService.cost_per_liter()` — custo real por litro
+- `AnalyticsService.quality_cost()` — variância de custo das ordens com inspeção FAILED
+- Integrados no `executive_kpis()` + 4 novos KPIs no dashboard
+- 241 testes (era 236). 5 testes novos
+
+### TASK-016.1 — Correções Pós-Auditoria
+**Status:** DONE
+- L-42: clamp OEE em 100% (`min(1.0, ...)`)
+- I-69: try/except com rollback em `create_confirmation`/`create_consumption`
+- I-72: testes com valores esperados (`test_oee_expected_values`, `test_oee_clamped_at_100`)
+- 243 testes (era 241)
+
+### Próxima: TASK-017 — Telas por módulo (Production, Quality, Cost)
 
 ---
 

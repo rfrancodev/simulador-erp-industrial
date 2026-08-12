@@ -4,6 +4,130 @@ This file documents the completion of each task, serving as the source of truth 
 
 ---
 
+## TASK-016.1 — Correções Pós-Auditoria (L-42, I-69, I-72)
+
+**Status:** DONE
+
+**Data:** 2026-08-12
+
+**IMPLEMENTADO:**
+- **L-42:** `oee = min(1.0, availability * performance * quality)` — clamp em 100%
+- **I-69:** `create_confirmation`/`create_consumption` com `try/except Exception: rollback(); raise`
+- **I-72:** testes `test_oee_expected_values` (96%) e `test_oee_clamped_at_100`
+
+**ARQUIVOS ALTERADOS:**
+- `app/analytics/service.py`, `app/services/production_service.py`
+- `tests/unit/test_dashboard.py` — helper `_create_oee_scenario` + 2 testes
+
+**TESTES:**
+```
+243 passed in 21.24s
+```
+- `compileall` OK · `typecheck` OK · `lint` OK
+
+**SECURITY AUDIT:**
+- 0 CRITICAL/HIGH/MEDIUM/LOW restantes
+- Pendência INFO (I-71 otimização OEE): documentada como "ação futura"
+
+**PRÓXIMA TAREFA:**
+TASK-017 — Telas por módulo (Production, Quality, Cost)
+
+---
+
+## TASK-016 — Indicadores avançados (OEE, Machine Utilization, Cost per Liter, Quality Cost)
+
+**Status:** DONE
+
+**Data:** 2026-08-12
+
+**IMPLEMENTADO:**
+- `AnalyticsService.oee()` — `availability` (razão planned/actual duration das ordens completadas) × `performance` (yield) × `quality` (pass rate)
+- `AnalyticsService.machine_utilization()` — % de recursos que produziram ao menos 1 batch
+- `AnalyticsService.cost_per_liter()` — custo real (fallback planejado) por litro produzido
+- `AnalyticsService.quality_cost()` — variância de custo das ordens com inspeção FAILED (rework/scrap)
+- Integrados ao `executive_kpis()` como chaves top-level (`oee`, `machine_utilization`, `cost_per_liter`, `quality_cost`)
+- 4 novos KPI cards no `home.html` (OEE, Machine Utilization, Cost per Liter, Quality Cost)
+
+**ARQUIVOS ALTERADOS:**
+- `app/analytics/service.py` — 4 métodos + integração no `executive_kpis`
+- `templates/dashboard/home.html` — 4 KPI cards
+- `tests/unit/test_dashboard.py` — 5 testes novos
+
+**DOCUMENTOS CONSULTADOS:**
+- `plano/05-dominio-pp-pi.md` — OEE, utilização de máquina
+- `plano/09-dashboard.md` — OEE, Cost per Liter, Quality Cost, Machine Utilization
+
+**TESTES:**
+```
+241 passed in 20.60s
+```
+- `.venv/bin/pytest tests/` → **241 passed** (era 236)
+- `npm run typecheck` → OK
+- `npm run lint` → OK
+- Smoke test: OEE 84.2% (A 98.2% × P 92.8% × Q 92.4%), Machine Utilization 100%, Cost/Liter R$ 2.86, Quality Cost R$ 14k
+
+**AUTO REVIEW:**
+- OEE deriva availability dos dados reais de duração (planned vs actual), performance do yield e quality do pass rate — sem valores hardcoded
+- Indicadores são read-only (SELECT), sem transação
+- Integração consistente com o padrão do `executive_kpis`
+
+**SECURITY AUDIT:**
+- SQL injection: ✅ ORM parametrizado
+- Divisão por zero tratada em todos os cálculos
+- Sem input de usuário; endpoints read-only
+
+**PRÓXIMA TAREFA:**
+TASK-017 — Telas por módulo (Production, Quality, Cost)
+
+---
+
+## TASK-015 — API ProductionConfirmation + MaterialConsumption
+
+**Status:** DONE
+
+**Data:** 2026-08-12
+
+**IMPLEMENTADO:**
+- Schema `MaterialConsumptionBase/Create/MaterialConsumption` adicionado a `app/domain/production/batch.py` (junto a `ProductionConfirmation`)
+- `ProductionConfirmationRepository` + `MaterialConsumptionRepository` em `app/repositories/production_repository.py` (get_by_batch + count_by_batch)
+- `ProductionService.create_confirmation` / `list_confirmations_by_batch` e `create_consumption` / `list_consumptions_by_batch`
+- `create_consumption` valida unit vs `material.base_unit` (reusa `ComponentUnitMismatchError` → 422)
+- 4 endpoints no router PP-PI:
+  - `POST /api/production/confirmations`, `GET /api/production/batches/{batch_id}/confirmations`
+  - `POST /api/production/consumptions`, `GET /api/production/batches/{batch_id}/consumptions`
+- `tests/unit/test_api_confirmations.py` — 8 testes (CRUD, 404 batch/material, 422 unit mismatch)
+
+**ARQUIVOS ALTERADOS:**
+- `app/domain/production/batch.py`, `app/repositories/production_repository.py`, `app/services/production_service.py`, `app/api/production.py`
+- `tests/unit/test_api_confirmations.py` (criado)
+
+**DOCUMENTOS CONSULTADOS:**
+- `plano/05-dominio-pp-pi.md` — Production Confirmation, Material Consumption
+- `plano/04-arquitetura-software.md` — routers/endpoints
+
+**TESTES:**
+```
+236 passed in 20.25s
+```
+- `.venv/bin/pytest tests/` → **236 passed** (era 228)
+- `npm run typecheck` → OK
+- `npm run lint` → OK
+
+**AUTO REVIEW:**
+- Segue o padrão das tarefas anteriores (repository + service + thin API + paginação)
+- Validação de unidade consistente com RecipeComponent (M-11/L-05)
+
+**SECURITY AUDIT:**
+- SQL injection: ✅ ORM parametrizado
+- Input: ✅ Pydantic (gt=0, decimal_places, max_length)
+- RBAC: ✅ router protegido por `require_api_access`
+- Erros: ✅ 404 (batch/material), 422 (unit mismatch)
+
+**PRÓXIMA TAREFA:**
+TASK-016 — Indicadores avançados (OEE, Machine Utilization, Cost per Liter, Quality Cost)
+
+---
+
 ## TASK-013.1 — Correções Pós-Auditoria (M-23, L-38, L-39, L-40, I-64, I-65, I-68)
 
 **Status:** DONE

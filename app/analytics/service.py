@@ -33,6 +33,10 @@ class AnalyticsService:
             "quality": self._quality_kpi(),
             "cost": self._cost_kpi(),
             "orders": self._orders_kpi(),
+            "oee": self.oee(),
+            "machine_utilization": self.machine_utilization(),
+            "cost_per_liter": self.cost_per_liter(),
+            "quality_cost": self.quality_cost(),
         }
 
     def _production_kpi(self) -> dict:
@@ -117,6 +121,94 @@ class AnalyticsService:
             "completed_orders": completed,
             "completion_rate": round(completed / total * 100, 1) if total > 0 else 0.0,
         }
+
+    # ── Advanced indicators ───────────────────────────────────────────────
+
+    def oee(self) -> dict:
+        """Overall Equipment Effectiveness = availability x performance x quality.
+
+        Availability is derived from the planned vs actual duration of completed
+        orders; performance from the batch yield; quality from the pass rate.
+        """
+        # Performance = yield (actual / planned) across batches.
+        total_actual = self._session.scalar(
+            select(func.coalesce(func.sum(Batch.actual_quantity), 0))
+        ) or Decimal("0")
+        total_planned = self._session.scalar(
+            select(func.coalesce(func.sum(Batch.planned_quantity), 0))
+        ) or Decimal("0")
+        performance = float(total_actual / total_planned) if total_planned > 0 else 0.0
+
+        # Quality = pass rate.
+        total_inspections = self._session.scalar(
+            select(func.count(QualityInspection.id))
+        ) or 0
+        passed = self._session.scalar(
+            select(func.count(QualityInspection.id)).where(
+                QualityInspection.inspection_status == "PASSED"
+            )
+        ) or 0
+        quality = (passed / total_inspections) if total_inspections > 0 else 0.0
+
+        # Availability = mean(planned_duration / actual_duration) of completed orders.
+        orders = list(self._session.execute(
+            select(ProductionOrder).where(
+                ProductionOrder.status == "COMPLETED",
+                ProductionOrder.actual_start.isnot(None),
+                ProductionOrder.actual_end.isnot(None),
+            )
+        ).scalars().all())
+        ratios = []
+        for order in orders:
+            planned = (order.planned_end - order.planned_start).total_seconds()
+            actual = (order.actual_end - order.actual_start).total_seconds()
+            if planned > 0 and actual > 0:
+                ratios.append(min(1.0, planned / actual))
+        availability = (sum(ratios) / len(ratios)) if ratios else 0.0
+
+        oee = min(1.0, availability * performance * quality)
+        return {
+            "oee": round(oee * 100, 1),
+            "availability": round(availability * 100, 1),
+            "performance": round(performance * 100, 1),
+            "quality": round(quality * 100, 1),
+        }
+
+    def machine_utilization(self) -> float:
+        """Share of production resources that produced at least one batch (%)."""
+        total = self._session.scalar(select(func.count(ProductionResource.id))) or 0
+        used = self._session.scalar(
+            select(func.count(func.distinct(Batch.resource_id)))
+        ) or 0
+        return round(used / total * 100, 1) if total > 0 else 0.0
+
+    def cost_per_liter(self) -> float:
+        """Actual cost (planned fallback) per produced liter."""
+        total_cost = self._session.scalar(
+            select(func.coalesce(func.sum(CostRecord.actual_total_cost), 0))
+        ) or Decimal("0")
+        total_volume = self._session.scalar(
+            select(func.coalesce(func.sum(Batch.actual_quantity), 0))
+        ) or Decimal("0")
+        if total_volume > 0:
+            return round(float(total_cost / total_volume), 2)
+        return 0.0
+
+    def quality_cost(self) -> float:
+        """Cost variance attributable to orders with a failed inspection (rework/scrap)."""
+        failed_order_ids = (
+            select(Batch.production_order_id)
+            .join(QualityInspection, QualityInspection.batch_id == Batch.id)
+            .where(QualityInspection.inspection_status == "FAILED")
+            .distinct()
+        )
+        variance = self._session.scalar(
+            select(func.coalesce(func.sum(
+                func.coalesce(CostRecord.actual_total_cost, CostRecord.planned_total_cost)
+                - CostRecord.planned_total_cost
+            ), 0)).where(CostRecord.production_order_id.in_(failed_order_ids))
+        ) or Decimal("0")
+        return round(float(variance), 2)
 
     # ── Module stats ──────────────────────────────────────────────────────
 
