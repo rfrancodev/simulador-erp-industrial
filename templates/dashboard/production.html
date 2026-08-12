@@ -1,0 +1,65 @@
+{% extends "dashboard/base.html" %}
+{% block content %}
+<h1>Production — PP-PI</h1>
+
+<div class="kpi-row">
+    <div class="kpi-card">
+        <div class="label">Production Volume</div>
+        <div class="value">{{ "%.0f"|format(kpis.production.total_volume_liters) }} L</div>
+        <div class="sub">{{ kpis.production.active_orders }} active orders</div>
+    </div>
+    <div class="kpi-card">
+        <div class="label">OEE</div>
+        <div class="value">{{ kpis.oee.oee }}%</div>
+        <div class="sub">A {{ kpis.oee.availability }}% · P {{ kpis.oee.performance }}% · Q {{ kpis.oee.quality }}%</div>
+    </div>
+    <div class="kpi-card">
+        <div class="label">Machine Utilization</div>
+        <div class="value">{{ kpis.machine_utilization }}%</div>
+        <div class="sub">resources with production</div>
+    </div>
+    <div class="kpi-card">
+        <div class="label">Orders Completed</div>
+        <div class="value">{{ kpis.orders.completion_rate }}%</div>
+        <div class="sub">{{ kpis.orders.completed_orders }}/{{ kpis.orders.total_orders }} orders</div>
+    </div>
+</div>
+
+<div class="kpi-row">
+    <div class="kpi-card">
+        <div class="label">Materials</div>
+        <div class="value">{{ stats.materials_count }}</div>
+    </div>
+    <div class="kpi-card">
+        <div class="label">Recipes</div>
+        <div class="value">{{ stats.recipes_count }}</div>
+    </div>
+    <div class="kpi-card">
+        <div class="label">Resources</div>
+        <div class="value">{{ stats.resources_count }}</div>
+    </div>
+</div>
+
+<div class="table-card">
+    <h2>Recent Production Orders</h2>
+    {% if stats.recent_orders %}
+    <table>
+        <thead>
+            <tr><th>Order</th><th>Status</th><th>Planned (L)</th><th>Actual (L)</th></tr>
+        </thead>
+        <tbody>
+        {% for o in stats.recent_orders %}
+            <tr>
+                <td>{{ o.order_number }}</td>
+                <td>{{ o.status }}</td>
+                <td>{{ "%.0f"|format(o.planned_quantity) }}</td>
+                <td>{{ "%.0f"|format(o.actual_quantity) if o.actual_quantity else "-" }}</td>
+            </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <div class="empty">No production orders yet.</div>
+    {% endif %}
+</div>
+{% endblock %}

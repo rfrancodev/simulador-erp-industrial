@@ -33,6 +33,7 @@ async def dashboard_home(
         request=request,
         name="dashboard/home.html",
         context={
+            "active_nav": "home",
             "kpis": analytics.executive_kpis(),
             "order_dist": analytics.order_status_distribution(),
             "inspection_dist": analytics.inspection_status_distribution(),
@@ -42,11 +43,57 @@ async def dashboard_home(
     )
 
 
+@router.get("/production", response_class=HTMLResponse)
+async def dashboard_production(
+    request: Request, analytics: AnalyticsService = Depends(_analytics)
+):
+    return templates.TemplateResponse(
+        request=request,
+        name="dashboard/production.html",
+        context={
+            "active_nav": "production",
+            "kpis": analytics.executive_kpis(),
+            "stats": analytics.production_stats(),
+        },
+    )
+
+
+@router.get("/quality", response_class=HTMLResponse)
+async def dashboard_quality(
+    request: Request, analytics: AnalyticsService = Depends(_analytics)
+):
+    return templates.TemplateResponse(
+        request=request,
+        name="dashboard/quality.html",
+        context={
+            "active_nav": "quality",
+            "kpis": analytics.executive_kpis(),
+            "stats": analytics.quality_stats(),
+        },
+    )
+
+
+@router.get("/costing", response_class=HTMLResponse)
+async def dashboard_costing(
+    request: Request, analytics: AnalyticsService = Depends(_analytics)
+):
+    return templates.TemplateResponse(
+        request=request,
+        name="dashboard/costing.html",
+        context={
+            "active_nav": "cost",
+            "kpis": analytics.executive_kpis(),
+            "stats": analytics.cost_stats(),
+        },
+    )
+
+
 @router.get("/order-360", response_class=HTMLResponse)
 async def dashboard_order_360(request: Request):
     return templates.TemplateResponse(
         request=request,
         name="dashboard/order_360.html",
+        context={"active_nav": "order360"},
     )
 
 

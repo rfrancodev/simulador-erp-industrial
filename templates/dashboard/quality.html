@@ -1,0 +1,50 @@
+{% extends "dashboard/base.html" %}
+{% block content %}
+<h1>Quality — QM</h1>
+
+<div class="kpi-row">
+    <div class="kpi-card">
+        <div class="label">Pass Rate</div>
+        <div class="value">{{ kpis.quality.pass_rate }}%</div>
+        <div class="sub">{{ kpis.quality.passed }}/{{ kpis.quality.total_inspections }} passed</div>
+    </div>
+    <div class="kpi-card">
+        <div class="label">Failure Rate</div>
+        <div class="value {{ 'negative' if kpis.quality.scrap_rate > 5 else '' }}">{{ kpis.quality.scrap_rate }}%</div>
+        <div class="sub">{{ kpis.quality.failed }} failed</div>
+    </div>
+    <div class="kpi-card">
+        <div class="label">Non-Conformities</div>
+        <div class="value">{{ kpis.quality.non_conformities }}</div>
+        <div class="sub">recorded defects</div>
+    </div>
+    <div class="kpi-card">
+        <div class="label">Pending Inspections</div>
+        <div class="value">{{ stats.pending_inspections }}</div>
+        <div class="sub">awaiting result</div>
+    </div>
+</div>
+
+<div class="table-card">
+    <h2>Recent Inspections</h2>
+    {% if stats.recent_inspections %}
+    <table>
+        <thead>
+            <tr><th>Lot</th><th>Status</th><th>pH</th><th>Alcohol %</th></tr>
+        </thead>
+        <tbody>
+        {% for i in stats.recent_inspections %}
+            <tr>
+                <td>{{ i.inspection_lot }}</td>
+                <td>{{ i.status }}</td>
+                <td>{{ i.pH if i.pH else "-" }}</td>
+                <td>{{ i.alcohol_percent if i.alcohol_percent else "-" }}</td>
+            </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <div class="empty">No inspections yet.</div>
+    {% endif %}
+</div>
+{% endblock %}

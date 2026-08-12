@@ -484,7 +484,17 @@ TASK-020 → CI/hardening (multi-stage build, hadolint, docker compose config)
 - I-72: testes com valores esperados (`test_oee_expected_values`, `test_oee_clamped_at_100`)
 - 243 testes (era 241)
 
-### Próxima: TASK-017 — Telas por módulo (Production, Quality, Cost)
+### TASK-017 — Telas por módulo (Production, Quality, Cost)
+**Status:** DONE
+- Templates `production.html`, `quality.html`, `costing.html` (KPIs + tabelas)
+- Rotas `/dashboard/production`, `/dashboard/quality`, `/dashboard/costing`
+- Navegação no `base.html` com `active_nav` dinâmico + CSS de tabelas
+- Production: volume, OEE, machine utilization, orders, contagens + recent orders
+- Quality: pass/failure rate, NCs, pending + recent inspections
+- Cost: planned/actual, variance, cost/liter, quality cost + cost by material
+- 246 testes (era 243). 3 testes novos
+
+### Próxima: TASK-018 — Integração PP→QM→CO passo 6 (rework cost automático)
 
 ---
 

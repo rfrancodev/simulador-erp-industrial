@@ -1,0 +1,54 @@
+{% extends "dashboard/base.html" %}
+{% block content %}
+<h1>Cost — CO</h1>
+
+<div class="kpi-row">
+    <div class="kpi-card">
+        <div class="label">Planned Cost</div>
+        <div class="value">{{ "R$ %.0f"|format(kpis.cost.total_planned_cost) }}</div>
+        <div class="sub">{{ kpis.cost.records_with_actual }} records with actuals</div>
+    </div>
+    <div class="kpi-card">
+        <div class="label">Actual Cost</div>
+        <div class="value">{{ "R$ %.0f"|format(kpis.cost.total_actual_cost) }}</div>
+        <div class="sub">recorded actuals</div>
+    </div>
+    <div class="kpi-card">
+        <div class="label">Variance</div>
+        <div class="value {{ 'positive' if kpis.cost.variance_percent <= 0 else 'negative' }}">{{ "%+.1f"|format(kpis.cost.variance_percent) }}%</div>
+        <div class="sub">{{ "R$ %+.0f"|format(kpis.cost.variance) }}</div>
+    </div>
+    <div class="kpi-card">
+        <div class="label">Cost per Liter</div>
+        <div class="value">{{ "R$ %.2f"|format(kpis.cost_per_liter) }}</div>
+        <div class="sub">actual cost / volume</div>
+    </div>
+    <div class="kpi-card">
+        <div class="label">Quality Cost</div>
+        <div class="value {{ 'negative' if kpis.quality_cost > 0 else '' }}">{{ "R$ %.0f"|format(kpis.quality_cost) }}</div>
+        <div class="sub">rework/scrap variance</div>
+    </div>
+</div>
+
+<div class="table-card">
+    <h2>Cost by Material</h2>
+    {% if stats.cost_by_material %}
+    <table>
+        <thead>
+            <tr><th>Material</th><th>Planned (R$)</th><th>Actual (R$)</th></tr>
+        </thead>
+        <tbody>
+        {% for c in stats.cost_by_material %}
+            <tr>
+                <td>{{ c.material }}</td>
+                <td>{{ "%.2f"|format(c.planned) }}</td>
+                <td>{{ "%.2f"|format(c.actual) }}</td>
+            </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <div class="empty">No cost records yet.</div>
+    {% endif %}
+</div>
+{% endblock %}

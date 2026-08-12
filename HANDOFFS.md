@@ -4,6 +4,54 @@ This file documents the completion of each task, serving as the source of truth 
 
 ---
 
+## TASK-017 — Telas por módulo (Production, Quality, Cost)
+
+**Status:** DONE
+
+**Data:** 2026-08-12
+
+**IMPLEMENTADO:**
+- `templates/dashboard/production.html` — KPIs (volume, OEE, machine utilization, completion) + contagens (materials/recipes/resources) + tabela de recent orders
+- `templates/dashboard/quality.html` — KPIs (pass/failure rate, NCs, pending) + tabela de recent inspections
+- `templates/dashboard/costing.html` — KPIs (planned/actual, variance, cost/liter, quality cost) + tabela cost by material
+- Rotas `/dashboard/production`, `/dashboard/quality`, `/dashboard/costing`
+- `base.html` — navegação com `active_nav` dinâmico (home/production/quality/cost/order-360) + CSS de tabelas
+
+**ARQUIVOS CRIADOS:**
+- `templates/dashboard/production.html`, `quality.html`, `costing.html`
+
+**ARQUIVOS ALTERADOS:**
+- `app/api/dashboard.py` — 3 rotas + `active_nav` no contexto de todas as páginas
+- `templates/dashboard/base.html` — navegação + CSS
+- `tests/unit/test_dashboard.py` — 3 testes novos
+
+**DOCUMENTOS CONSULTADOS:**
+- `plano/09-dashboard.md` — telas por módulo (Production/Quality/Cost)
+
+**TESTES:**
+```
+246 passed in 20.54s
+```
+- `.venv/bin/pytest tests/` → **246 passed** (era 243)
+- `npm run typecheck` → OK
+- `npm run lint` → OK
+- Smoke test: todas as 5 páginas renderizam 200 com dados simulados
+
+**AUTO REVIEW:**
+- Reusa os dados já existentes do `AnalyticsService` (executive_kpis + stats)
+- Navegação consistente com `active_nav` dinâmico
+- Estilo consistente com o `home.html` (kpi-card/table-card)
+
+**SECURITY AUDIT:**
+- XSS: ✅ Jinja2 escapa por padrão; sem `tojson` de dados não-sanitizados
+- Rotas HTML públicas (I-31, documentado) — endpoints de dados protegidos por RBAC
+- Sem input de usuário
+
+**PRÓXIMA TAREFA:**
+TASK-018 — Integração PP→QM→CO passo 6 (rework cost automático)
+
+---
+
 ## TASK-016.1 — Correções Pós-Auditoria (L-42, I-69, I-72)
 
 **Status:** DONE

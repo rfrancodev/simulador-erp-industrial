@@ -3376,3 +3376,100 @@ oee = min(1.0, availability * performance * quality)
 
 **Pendências restantes (INFO, "ação futura"):**
 - I-71: OEE carrega ordens na memória (otimizar com SQL quando necessário)
+
+---
+
+## Auditoria TASK-017 — Telas por módulo (Production, Quality, Cost)
+
+**Data:** 2026-08-12
+**Revisor:** Auditor de Segurança/Qualidade (pós-implementação)
+**Escopo:** `templates/dashboard/production.html`, `quality.html`, `costing.html`, `app/api/dashboard.py` (rotas), `templates/dashboard/base.html` (navegação + CSS), `tests/unit/test_dashboard.py` (testes).
+
+### Sumário
+
+| Severidade | Quantidade |
+|-----------|-----------|
+| CRITICAL | 0 |
+| HIGH | 0 |
+| MEDIUM | 0 |
+| LOW | 0 |
+| INFO | 4 |
+
+---
+
+### ✅ Pontos Positivos
+
+| Verificação | Resultado |
+|------------|-----------|
+| XSS | ✅ Jinja2 escapa automaticamente; sem `\| safe` em dados não-sanitizados |
+| SQL injection | ✅ Dados via AnalyticsService (ORM parametrizado); sem input do usuário nos templates |
+| Path traversal | ✅ Nomes de template hardcoded (`dashboard/xxx.html`); sem input do usuário |
+| Secrets | ✅ Nenhum |
+| SSRF / CORS | N/A |
+| Autenticação | ✅ Endpoints de dados (`/api/dashboard/*`) protegidos por RBAC; rotas HTML públicas (I-31) |
+| Integridade transacional | ✅ Read-only (sem modificação de dados) |
+| Consistência | ✅ Dados consistentes com os endpoints API |
+| Estilo | ✅ Consistente com `home.html` (kpi-card/table-card) |
+| Navegação | ✅ `active_nav` dinâmico, consistente em todas as páginas |
+| Testes | ✅ 3 testes novos (renderização + conteúdo) |
+
+---
+
+## INFO
+
+### I-74 — `executive_kpis()` calcula todos os módulos, mas cada página usa um subset
+
+**Arquivo:** `app/api/dashboard.py:56, 70, 85`
+**Observação:** Cada rota (`/dashboard/production/quality/costing`) chama `executive_kpis()` (que executa queries de production, quality, cost, orders, oee, etc.) + `*_stats()`. A página production, por exemplo, só usa `kpis.production.*`, `kpis.oee.*`, `kpis.machine_utilization`, `kpis.orders.*` — não usa quality/cost. Isso é ineficiente (queries desnecessárias), mas o padrão é consistente com o `home.html`.
+**Ação futura:** Otimizar com métodos granulares (`production_kpis()`, `quality_kpis()`, `cost_kpis()`) ou caching.
+
+---
+
+### I-75 — Sem teste com dados simulados (valores renderizados)
+
+**Arquivo:** `tests/unit/test_dashboard.py`
+**Observação:** Os testes verificam apenas que a página renderiza (200) e contém certas strings ("Production", "Quality", "Cost"). Não há teste que popule dados simulados e verifique valores específicos renderizados (ex: OEE = X%, pass_rate = Y%).
+**Ação futura:** Adicionar teste com `SimulationEngine` que verifica valores renderizados no HTML.
+
+---
+
+### I-76 — Sem teste de `active_nav` (navegação destacada)
+
+**Arquivo:** `tests/unit/test_dashboard.py`
+**Observação:** Não há teste que verifique se o link de navegação correspondente tem a classe `active` (ex: em `/dashboard/production`, o link "Production" tem `class="active"`).
+**Ação futura:** Adicionar teste que verifica `class="active"` no link correto.
+
+---
+
+### I-77 — Sem teste de empty state
+
+**Arquivo:** `tests/unit/test_dashboard.py`
+**Observação:** Não há teste que verifique a renderização do estado vazio (ex: "No production orders yet.", "No inspections yet.", "No cost records yet."). Os testes existentes usam o client padrão que tem dados vazios, mas não verificam a mensagem de empty state.
+**Ação futura:** Adicionar testes que verificam a presença da mensagem de empty state quando não há dados.
+
+---
+
+## Análise Consolidada (TASK-017)
+
+### ⚠️ Achados
+
+| Categoria | Severidade | Descrição |
+|-----------|-----------|-----------|
+| Performance | INFO | I-74 — `executive_kpis()` calcula todos os módulos por página |
+| Testes | INFO | I-75, I-76, I-77 — sem teste de valores renderizados, active_nav, empty state |
+
+---
+
+## Conclusão (Pós-Auditoria TASK-017)
+
+**Estado Geral:** ✅ **BOM** — TASK-017 entrega 3 telas por módulo (Production, Quality, Cost) seguindo o padrão existente, com navegação dinâmica e estilo consistente. Nenhum achado CRITICAL/HIGH/MEDIUM/LOW.
+
+**Achados:** 0 CRITICAL, 0 HIGH, 0 MEDIUM, 0 LOW, 4 INFO.
+
+**Pronto para Produção:** ✅ Sim (para demo/simulação).
+
+**Segurança:** ✅ Sem vulnerabilidades. Templates seguros; endpoints de dados protegidos; dados sintéticos.
+
+**Risco de Segurança:** Baixo — HTML público (documentado como I-31), dados sintéticos, sem input de usuário.
+
+**Recomendação Final:** Os achados INFO são melhorias incrementais (performance, cobertura de testes). Nenhum bloqueante.

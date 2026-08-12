@@ -314,6 +314,24 @@ class TestDashboardAPI:
         assert resp.status_code == 200
         assert "Order 360" in resp.text
 
+    def test_production_page_renders(self, client: TestClient):
+        resp = client.get("/dashboard/production")
+        assert resp.status_code == 200
+        assert "Production" in resp.text
+        assert "Recent Production Orders" in resp.text
+
+    def test_quality_page_renders(self, client: TestClient):
+        resp = client.get("/dashboard/quality")
+        assert resp.status_code == 200
+        assert "Quality" in resp.text
+        assert "Recent Inspections" in resp.text
+
+    def test_costing_page_renders(self, client: TestClient):
+        resp = client.get("/dashboard/costing")
+        assert resp.status_code == 200
+        assert "Cost" in resp.text
+        assert "Cost by Material" in resp.text
+
     def test_api_kpis(self, client: TestClient):
         resp = client.get("/api/dashboard/kpis")
         assert resp.status_code == 200
