@@ -588,3 +588,555 @@ Nenhum item CRITICAL encontrado. Os 3 HIGH são corrigíveis sem retrabalho sign
 | CORS excessivo | N/A — sem endpoints de dados ainda |
 
 **Resultado:** Nenhum item de segurança encontrado. API pronta para TASK-007 (CO).
+
+---
+
+## Auditoria Completa Pós-TASK-006 — Estado Consolidado
+
+**Data:** 2026-08-12  
+**Revisor:** Auditor de Segurança/Qualidade  
+**Escopo:** Codebase completo após TASK-006 (PP-PI + QM API)  
+**Status:** 113 testes passando, typecheck OK, lint OK
+
+### Sumário
+
+| Severidade | Quantidade |
+|-----------|-----------|
+| CRITICAL | 0 |
+| HIGH | 2 |
+| MEDIUM | 8 |
+| LOW | 10 |
+| INFO | 10 |
+
+---
+
+## HIGH
+
+### H-01 — Ausência de Autenticação/Autorização
+
+**Arquivo:** `app/main.py`, todos os routers  
+**Problema:** Todos os endpoints REST estão publicamente acessíveis sem autenticação ou autorização. Qualquer usuário pode criar, modificar ou deletar materiais, ordens, batches, inspeções.
+
+**Impacto:** Em produção, permitiria manipulação não autorizada de dados industriais críticos.
+
+**Correção:** 
+- Adicionar middleware de autenticação (JWT, OAuth2) em TASK-009
+- Implementar roles e permissões (admin, operator, viewer)
+- Proteger endpoints sensíveis (DELETE, PUT)
+
+**Prioridade:** Alta (bloqueante para produção)
+
+---
+
+### H-02 — ProductionRecipe sem API CRUD
+
+**Arquivo:** `app/api/production.py`  
+**Problema:** Não existem endpoints para criar, listar, atualizar ou deletar `ProductionRecipe`. O domínio PP-PI requer receitas para criar ordens de produção, mas não há forma de criá-las via API.
+
+**Impacto:** Impossível criar receitas via REST API. Apenas via código Python ou SQL direto.
+
+**Correção:**  
+Adicionar endpoints em `app/api/production.py`:
+- `POST /api/production/recipes`
+- `GET /api/production/recipes`
+- `GET /api/production/recipes/{id}`
+- `PUT /api/production/recipes/{id}`
+- `DELETE /api/production/recipes/{id}`
+
+**Prioridade:** Alta (bloqueante para uso da API)
+
+---
+
+## MEDIUM
+
+### M-09 — Session Dependency sem Commit/Rollback
+
+**Arquivo:** `app/database/connection.py:82-92`  
+**Problema:** `session_dependency()` cria nova sessão e fecha ao final, mas não gerencia transações. Serviços devem chamar `commit()`/`rollback()` corretamente. Se um serviço falhar em fazer rollback após exceção, a sessão fica em estado inconsistente.
+
+**Impacto:** Possível vazamento de transações não finalizadas, locks de banco.
+
+**Correção:**
+```python
+def session_dependency():
+    session = get_session()
+    try:
+        yield session
+    except Exception:
+        session.rollback()
+        raise
+    finally:
+        session.close()
+```
+
+**Prioridade:** Média
+
+---
+
+### M-10 — update_result() sem Validação de Campos
+
+**Arquivo:** `app/repositories/quality_repository.py:58-75`  
+**Problema:** `update_result()` aceita `**params` arbitrários. Embora haja whitelist para campos de identidade (`id`, `batch_id`, `inspection_lot`, `inspection_date`), qualquer outro campo pode ser sobrescrito sem validação de tipo ou range.
+
+**Impacto:** Permite definir valores inválidos (ex: `pH="texto"` ou `alcohol_percent=200`) que passarão pelo Pydantic mas podem causar erros no banco.
+
+**Correção:**  
+Validar explicitamente cada campo recebido contra os constraints do modelo ou usar `QualityInspectionResult` schema para validar antes de aplicar.
+
+**Prioridade:** Média
+
+---
+
+### M-11 — Inconsistência RecipeComponent.unit vs Material.base_unit
+
+**Arquivo:** `app/domain/entities.py`, `app/domain/production/recipe.py`  
+**Problema:** `RecipeComponent.unit` é independente de `Material.base_unit`. Permite inconsistência: componente definido em "KG" mas material base em "L".
+
+**Impacto:** Dados inconsistentes no domínio. Cálculos de custo e consumo podem falhar.
+
+**Correção:**  
+- Adicionar validação no service: `if component.unit != material.base_unit: raise ValidationError`
+- Ou normalizar automaticamente usando `Material.base_unit`
+
+**Prioridade:** Média (afeta integridade de domínio)
+
+---
+
+### M-12 — list_materials() Retorna Apenas Ativos
+
+**Arquivo:** `app/repositories/production_repository.py:74-76`, `app/api/production.py:21-33`  
+**Problema:** `list_active()` filtra `is_active == True`. Não há forma de listar materiais inativos via API (ex: para admin revisar ou reativar).
+
+**Impacto:** Impossível gerenciar ciclo de vida completo de materiais via API.
+
+**Correção:**  
+Adicionar query parameter `?active=true|false|all` ou endpoint separado `/api/production/materials/inactive`.
+
+**Prioridade:** Média
+
+---
+
+### M-13 — Paginação Inconsistente
+
+**Arquivo:** `app/api/production.py`  
+**Problema:** Apenas `list_materials()` retorna `MaterialList` com metadados de paginação (`total`, `page`, `page_size`). Outros endpoints de listagem (`list_orders`, `list_batches`, `list_inspections`) retornam listas simples sem metadados.
+
+**Impacto:** API inconsistente. Cliente não sabe quantos registros existem ou em qual página está.
+
+**Correção:**  
+Padronizar resposta de listagem com envelope:
+```python
+class PaginatedResponse(BaseModel):
+    items: list[T]
+    total: int
+    page: int
+    page_size: int
+```
+
+**Prioridade:** Média
+
+---
+
+### M-14 — ProductionOrder.status sem Validação de Transição
+
+**Arquivo:** `app/domain/production/recipe.py`, `app/services/production_service.py`  
+**Problema:** `ProductionOrderBase` aceita qualquer `ProductionOrderStatus` sem validar transições de estado. Permite ir de `CREATED` direto para `COMPLETED` sem passar por `RELEASED` ou `IN_PROCESS`.
+
+**Impacto:** Viola regras de negócio industriais. Ordens podem pular etapas obrigatórias.
+
+**Correção:**  
+Implementar máquina de estados no service:
+```python
+VALID_TRANSITIONS = {
+    "CREATED": ["RELEASED"],
+    "RELEASED": ["IN_PROCESS"],
+    "IN_PROCESS": ["COMPLETED", "PARTIAL"],
+    ...
+}
+```
+
+**Prioridade:** Média (afeta fluxo de produção)
+
+---
+
+### M-15 — QualityInspection sem Validação de Transição de Status
+
+**Arquivo:** `app/services/quality_service.py:77-90`  
+**Problema:** `update_inspection_result()` aceita qualquer `InspectionStatus` sem validar transições. Permite ir de `PASSED` para `PENDING` ou de `FAILED` para `PASSED` sem re-inspeção.
+
+**Impacto:** Viola fluxo de qualidade. Inspeções podem ser manipuladas para bypass de controles.
+
+**Correção:**  
+Validar transições permitidas:
+```python
+VALID_TRANSITIONS = {
+    "PENDING": ["IN_PROGRESS"],
+    "IN_PROGRESS": ["PASSED", "FAILED", "REWORK"],
+    "REWORK": ["IN_PROGRESS"],
+    ...
+}
+```
+
+**Prioridade:** Média
+
+---
+
+### M-16 — Ausência de Rate Limiting
+
+**Arquivo:** `app/main.py`  
+**Problema:** Nenhum endpoint possui rate limiting. Vulnerável a ataques de negação de serviço (DoS) ou abuso de API.
+
+**Impacto:** Em produção, um cliente malicioso pode sobrecarregar o servidor.
+
+**Correção:**  
+Adicionar middleware de rate limiting (ex: `slowapi` ou `fastapi-limiter`).
+
+**Prioridade:** Média (relevante para produção)
+
+---
+
+## LOW
+
+### L-07 — Logging sem Arquivo de Log
+
+**Arquivo:** `app/core/logging.py:16-23`  
+**Problema:** `setup_logging()` configura apenas handler para stdout. Não há rotação de logs, arquivo de log, ou configuração de nível por módulo.
+
+**Impacto:** Logs perdidos ao reiniciar container. Difícil debug em produção.
+
+**Correção:**  
+Adicionar `RotatingFileHandler` ou configurar via variável de ambiente (`LOG_FILE`, `LOG_LEVEL`).
+
+**Prioridade:** Baixa
+
+---
+
+### L-08 — Ausência de Request ID
+
+**Arquivo:** `app/main.py`, `app/core/logging.py`  
+**Problema:** Logs não incluem ID de requisição. Em cenários concorrentes, difícil correlacionar logs de uma mesma requisição.
+
+**Impacto:** Debug difícil em produção com múltiplas requisições simultâneas.
+
+**Correção:**  
+Adicionar middleware que gera `X-Request-ID` e injeta no contexto de log.
+
+**Prioridade:** Baixa
+
+---
+
+### L-09 — Índice Ausente em production_orders.status
+
+**Arquivo:** `app/domain/entities.py:115`, `database/migrations/versions/4337571b8a8f_initial.py:69`  
+**Problema:** Coluna `status` em `production_orders` não tem índice. Queries como `get_by_status()` farão scan completo da tabela.
+
+**Impacto:** Performance degrada com crescimento de dados.
+
+**Correção:**  
+Adicionar `index=True` na definição da coluna.
+
+**Prioridade:** Baixa
+
+---
+
+### L-10 — Índice Ausente em quality_inspections.inspection_status
+
+**Arquivo:** `app/domain/entities.py:201`  
+**Problema:** Coluna `inspection_status` não tem índice. Queries filtrando por status serão lentas.
+
+**Impacto:** Performance degrada com crescimento de dados.
+
+**Correção:**  
+Adicionar `index=True` na definição da coluna.
+
+**Prioridade:** Baixa
+
+---
+
+### L-11 — CostRecordRepository.update_actual() sem Validação
+
+**Arquivo:** `app/repositories/costing_repository.py:37-51`  
+**Problema:** `update_actual()` calcula `actual_total_cost` mesmo se apenas alguns campos `actual_*` foram definidos. Campos não definidos são tratados como `0` via `or Decimal("0")`.
+
+**Impacto:** Totais incorretos se usuário atualizar parcialmente custos reais.
+
+**Correção:**  
+Validar que todos os campos `actual_*` estão definidos antes de calcular total, ou documentar comportamento.
+
+**Prioridade:** Baixa
+
+---
+
+### L-12 — Ausência de API para CostRecord (CO)
+
+**Arquivo:** `app/api/`  
+**Problema:** Domínio CO (`CostRecord`) não possui endpoints REST. Apenas repository e schemas existem.
+
+**Impacto:** Impossível gerenciar custos via API. Módulo CO inacessível.
+
+**Correção:**  
+Implementar `app/api/costing.py` com endpoints CRUD em TASK-007.
+
+**Prioridade:** Baixa (esperado para TASK-007)
+
+---
+
+### L-13 — ProductionOrder.get_with_material() não Carrega Recipe
+
+**Arquivo:** `app/repositories/production_repository.py:91-97`  
+**Problema:** `get_with_material()` usa `joinedload` para carregar `Material`, mas não carrega `ProductionRecipe`. Schema `ProductionOrder` espera `recipe` relacionado.
+
+**Impacto:** Dados da receita não disponíveis na resposta da API.
+
+**Correção:**  
+Adicionar `.options(joinedload(ProductionOrder.material), joinedload(ProductionOrder.recipe))` ou lazy load.
+
+**Prioridade:** Baixa
+
+---
+
+### L-14 — Ausência de Cascade Delete
+
+**Arquivo:** `app/domain/entities.py`  
+**Problema:** Relacionamentos não configuram `cascade="all, delete-orphan"`. Deletar `ProductionOrder` falhará se houver `Batch` relacionado.
+
+**Impacto:** Erro de integridade referencial ao tentar deletar entidades com dependências.
+
+**Correção:**  
+- Adicionar cascade para relacionamentos pai-filho
+- Ou implementar soft delete
+- Ou validar dependências antes de deletar (como `MaterialRepository.delete()` faz)
+
+**Prioridade:** Baixa
+
+---
+
+### L-15 — MaterialUpdate permite Alterar material_code
+
+**Arquivo:** `app/domain/production/material.py:31-34`, `app/repositories/production_repository.py:46-57`  
+**Problema:** Schema `MaterialUpdate` não inclui `material_code`, mas repository usa `model_dump(exclude_unset=True)` e aplica qualquer campo recebido. Se `material_code` for passado, será aplicado.
+
+**Impacto:** Inconsistência se código for alterado após criação (código deve ser imutável).
+
+**Correção:**  
+- Remover `material_code` do `MaterialBase` e criar `MaterialCreate` separado
+- Ou validar explicitamente no repository que `material_code` não pode ser alterado
+
+**Prioridade:** Baixa
+
+---
+
+### L-16 — Testes com IDs Hardcoded
+
+**Arquivo:** `tests/unit/test_api_quality.py`, `tests/unit/test_api_production.py`  
+**Problema:** Testes assumem IDs sequenciais (ex: `material_id=1`, `batch_id=1`). Se testes rodarem em ordem diferente ou com dados pré-existentes, falharão.
+
+**Impacto:** Testes frágeis, dependem de estado global.
+
+**Correção:**  
+Capturar IDs retornados das responses e usar nos asserts:
+```python
+response = client.post("/api/production/materials", json=...)
+material_id = response.json()["id"]
+```
+
+**Prioridade:** Baixa
+
+---
+
+## INFO
+
+### I-13 — CORS não Configurado
+
+**Arquivo:** `app/main.py`  
+**Observação:** FastAPI não configura CORS por padrão. Frontend (se houver) não conseguirá consumir API.
+
+**Ação Futura:** Configurar CORS em TASK-009 quando integrar frontend.
+
+---
+
+### I-14 — HTTPS não Forçado
+
+**Observação:** API não força HTTPS. Depende de reverse proxy (nginx, Cloudflare).
+
+**Ação Futura:** Configurar reverse proxy com TLS.
+
+---
+
+### I-15 — Ausência de Timeout de Request
+
+**Observação:** FastAPI usa timeout padrão. Queries longas podem bloquear worker.
+
+**Ação Futura:** Configurar timeout via middleware ou query optimizer.
+
+---
+
+### I-16 — OpenAPI sem Customização
+
+**Arquivo:** `app/main.py:19-23`  
+**Observação:** Documentação OpenAPI usa padrões. Não há descrição detalhada, exemplos, ou tags organizadas.
+
+**Ação Futura:** Customizar `app.description`, adicionar `response_model` com exemplos.
+
+---
+
+### I-17 — ProductionResource.is_available sem API de Update
+
+**Arquivo:** `app/domain/entities.py:132-142`  
+**Observação:** Campo `is_available` existe mas não há endpoint para alterá-lo.
+
+**Ação Futura:** Adicionar `PUT /api/production/resources/{id}/availability`.
+
+---
+
+### I-18 — Ausência de Soft Delete
+
+**Observação:** Sistema usa hard delete. Dados deletados são perdidos permanentemente.
+
+**Ação Futura:** Considerar soft delete com campo `deleted_at` para auditoria.
+
+---
+
+### I-19 — Ausência de Audit Trail
+
+**Observação:** Mudanças de status (ex: `ProductionOrder.status`) não são registradas com timestamp, usuário, ou motivo.
+
+**Ação Futura:** Criar tabela `status_history` ou usar biblioteca de audit (ex: `sqlalchemy-continuum`).
+
+---
+
+### I-20 — QualityInspection.batch_id unique não Documentado
+
+**Arquivo:** `app/domain/entities.py:199`  
+**Observação:** `batch_id` tem `unique=True`, enforce "uma inspeção por batch". Schema Pydantic não documenta essa restrição.
+
+**Ação Futura:** Adicionar `description="One inspection per batch"` no schema.
+
+---
+
+### I-21 — Ausência de Health Check de Banco
+
+**Arquivo:** `app/main.py:56-58`  
+**Observação:** Endpoint `/health` retorna `{"status": "ok"}` mas não verifica conectividade com banco.
+
+**Correção:**
+```python
+@app.get("/health")
+def health(session: Session = Depends(session_dependency)):
+    try:
+        session.execute(text("SELECT 1"))
+        return {"status": "ok", "database": "connected"}
+    except Exception as e:
+        raise HTTPException(status_code=503, detail="Database unavailable")
+```
+
+**Prioridade:** Baixa
+
+---
+
+### I-22 — Testes Dependem de Ordem de Execução
+
+**Observação:** Testes de API criam dados com IDs esperados. Se pytest rodar em ordem aleatória, podem falhar.
+
+**Correção:**  
+Usar fixtures que criam dados isolados ou capturar IDs dinamicamente.
+
+---
+
+## Análise de Segurança Consolidada
+
+### ✅ Pontos Positivos
+
+| Verificação | Resultado |
+|------------|-----------|
+| Secrets no código | ✅ Nenhum |
+| .env no .gitignore | ✅ Excluído |
+| .env.example sem credenciais | ✅ Placeholders usados |
+| SQL injection | ✅ ORM parametrizado |
+| Validação de entrada | ✅ Pydantic (Field, enums, ranges) |
+| Stack traces em erros | ✅ Erros de domínio traduzidos |
+| Logs sem dados sensíveis | ✅ Apenas códigos |
+| CHECK constraints no DB | ✅ Enums validados no DB |
+| Transaction boundaries | ✅ Services gerenciam commit/rollback |
+| Thread safety | ✅ Double-check locking em connection.py |
+
+### ⚠️ Vulnerabilidades Identificadas
+
+| Categoria | Severidade | Descrição |
+|-----------|-----------|-----------|
+| Autenticação | HIGH | Nenhum endpoint requer autenticação |
+| Autorização | HIGH | Nenhum controle de acesso baseado em roles |
+| Rate limiting | MEDIUM | Vulnerável a DoS |
+| CORS | INFO | Não configurado (esperado para TASK-009) |
+| HTTPS | INFO | Não forçado (depende de reverse proxy) |
+| Input validation | MEDIUM | `update_result()` aceita `**params` sem validação |
+| Business rules | MEDIUM | Sem validação de transições de estado |
+
+---
+
+## Análise de Performance
+
+| Verificação | Resultado |
+|------------|-----------|
+| N+1 queries | ✅ `joinedload` usado em `get_with_material()`, `get_by_batch()` |
+| Índices | ⚠️ Ausentes em `status` (orders, inspections) |
+| Paginação | ✅ Implementada com `offset/limit` |
+| Contagem eficiente | ✅ `func.count()` usado |
+| Connection pooling | ✅ Configurado via `DB_POOL_SIZE`, `DB_MAX_OVERFLOW` |
+| Caching | ⚠️ Não implementado (pode ser adicionado posteriormente) |
+
+---
+
+## Análise de Testes
+
+**Cobertura Atual:**
+- 113 testes passando
+- Cobre: Materials, Production Orders, Batches, Resources, Quality Inspections, Non-Conformities
+- **Não cobre:** Recipes CRUD, CostRecords API, transições de estado, paginação, erros de concorrência
+
+**Testes Ausentes:**
+1. Recipes CRUD via API
+2. Transições de estado (ProductionOrder, QualityInspection)
+3. Paginação e metadados
+4. Concorrência (dois clientes criando mesma entidade)
+5. Rate limiting (quando implementado)
+6. Autenticação/autorização (quando implementado)
+
+---
+
+## Recomendações Prioritárias
+
+### Para TASK-007 (Próxima Tarefa)
+
+1. **H-02** — Implementar API CRUD para `ProductionRecipe`
+2. **M-13** — Padronizar paginação em todos os endpoints de listagem
+3. **L-12** — Implementar API para `CostRecord` (CO)
+4. **L-13** — Carregar `recipe` em `get_with_material()`
+
+### Para TASK-008 (Dashboard)
+
+1. **M-09** — Melhorar `session_dependency()` com rollback automático
+2. **M-12** — Adicionar filtro `?active=all` em `list_materials()`
+3. **L-09/L-10** — Adicionar índices em colunas `status`
+4. **I-21** — Melhorar `/health` com verificação de banco
+
+### Para TASK-009 (Produção)
+
+1. **H-01** — Implementar autenticação/autorização
+2. **M-14/M-15** — Implementar máquinas de estado para ordens e inspeções
+3. **M-16** — Adicionar rate limiting
+4. **L-14** — Configurar cascade delete ou validação de dependências
+
+---
+
+## Conclusão
+
+**Estado Geral:** ✅ **BOM** — Código limpo, bem testado, arquitetura sólida.
+
+**Pronto para Próxima Tarefa:** ✅ Sim — TASK-007 pode prosseguir.
+
+**Bloqueante para Produção:** ⚠️ Sim — Requer autenticação (H-01) e API de Recipes (H-02).
+
+**Risco de Segurança:** ⚠️ Médio — Ausência de autenticação é crítico para produção, mas esperado nesta fase de desenvolvimento.
+
+**Recomendação Final:** Prosseguir com TASK-007 (CO + Recipes API + paginação) e reservar TASK-009 para autenticação/autorização.
