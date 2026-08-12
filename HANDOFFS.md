@@ -4,6 +4,90 @@ This file documents the completion of each task, serving as the source of truth 
 
 ---
 
+## TASK-005 — REST API Endpoints PP-PI (FastAPI)
+
+**Status:** DONE
+
+**Data:** 2026-08-12
+
+**IMPLEMENTADO:**
+- `app/api/production.py` — Router FastAPI com 19 endpoints para domínio PP-PI
+  - **Materials** (CRUD completo): `POST`, `GET`, `PUT`, `DELETE` + listagem paginada
+  - **Production Orders**: criar, listar, buscar por número, buscar por status, buscar por ID (com material eager-loaded)
+  - **Batches**: criar, listar por ordem, buscar por número
+  - **Production Resources**: criar, listar, buscar por ID/código/centro de trabalho
+  - **Production Recipes**: listar, buscar por ID/código/material ativo
+- `app/services/production_service.py` — Estendido com 19 métodos cobrindo todo PP-PI
+  - CRUD de Materials, Production Orders, Batches, Resources, Recipes
+  - Validação de regras de negócio (material ativo, receita compatível, dependências)
+  - Transaction boundary: commit em sucesso, rollback em erro (padrão M-05)
+  - Tradução de `IntegrityError` → `DuplicateEntityError`
+- `app/main.py` — Router montado + exception handlers globais
+  - `EntityNotFoundError` → 404
+  - `DuplicateEntityError` → 409
+  - `RecipeMaterialMismatchError` → 422
+  - `EntityHasDependenciesError` → 409
+  - `DomainError` (fallback) → 400
+  - DB dependency (`session_dependency`) injetada via FastAPI Depends
+- `tests/unit/test_api_production.py` — **36 testes** cobrindo todos os endpoints
+  - Materials: CRUD + duplicate + not found + update partial
+  - Production Orders: create + validação datas + list + status filter + not found
+  - Batches: create + duplicate + invalid order + list by order + by number + not found
+  - Resources: create + duplicate + list + by code + by work center + not found
+  - Recipes: list + by code + not found
+  - Health check
+
+**ARQUIVOS CRIADOS:**
+- `app/api/production.py`
+- `tests/unit/test_api_production.py`
+
+**ARQUIVOS ALTERADOS:**
+- `app/main.py` — router mounting + exception handlers
+- `app/services/production_service.py` — 18 novos métodos
+
+**DOCUMENTOS CONSULTADOS:**
+- `plano/04-arquitetura-software.md` — estrutura de routers (`app/api/production.py`)
+- `plano/05-dominio-pp-pi.md` — entidades e indicadores KPIs
+- `plano/09-dashboard.md` — endpoints esperados para dashboard
+- `TASKS.md` — ciclo Task → Test → Audit → Handoff
+
+**TESTES:**
+```
+============================== 93 passed in 2.79s ==============================
+```
+- `.venv/bin/python -m compileall app/` → OK
+- `.venv/bin/pytest tests/ -v` → **93 passed** (era 57)
+- `npm run typecheck` → OK
+- `npm run lint` → OK
+
+**AUTO REVIEW:**
+- Router separado por domínio (`app/api/production.py`) conforme arquitetura planejada
+- Service layer mantém lógica de negócio; API endpoints são finos (thin controllers)
+- Exceções de domínio traduzidas para HTTP codes apropriados (404, 409, 422)
+- Sem duplicação de lógica entre endpoints e service
+- Nomes de endpoints seguem REST (substantivos, ações via HTTP verbs)
+- Testes cobrem casos de sucesso, erro e borda (404, 409, 422, validação)
+
+**SECURITY AUDIT:**
+- Inputs validados via Pydantic (Field constraints, enums, tipos)
+- SQL via ORM parametrizado (sem SQL injection)
+- Erros de domínio traduzidos sem expor stack traces
+- Nenhum endpoint expõe dados sensíveis
+- Sem secrets, tokens ou credenciais
+- `.env.example` sem valores reais
+- Logs sem dados sensíveis (material_code, order_number, resource_code)
+
+**PENDÊNCIAS:**
+- TASK-006: Serviço QM + endpoints de qualidade
+- TASK-007: Serviço CO + endpoints de custo
+- TASK-008: Dashboard API (KPIs agregados)
+- TASK-009: Simulation Engine
+
+**PRÓXIMA TAREFA:**
+TASK-006 — Criar serviço QM + REST endpoints para Quality Management
+
+---
+
 ## TASK-004 — Database Connection + Alembic Setup
 
 **Status:** DONE
@@ -319,9 +403,11 @@ TASK-003 — Criar ProductionService e database setup
 simulador-erp-industrial/
 ├── app/
 │   ├── __init__.py
-│   ├── main.py                    # FastAPI app base + setup_logging
+│   ├── main.py                    # FastAPI app + routers + exception handlers
 │   ├── core/                      # exceptions + logging
-│   ├── api/                       # (vazio — próximo passo)
+│   ├── api/
+│   │   ├── __init__.py
+│   │   └── production.py          # PP-PI REST endpoints (19 endpoints)
 │   ├── domain/
 │   │   ├── entities.py            # Todos os modelos SQLAlchemy + CHECK constraints
 │   │   ├── production/
@@ -333,20 +419,22 @@ simulador-erp-industrial/
 │   │   └── costing/
 │   │       └── cost.py
 │   ├── repositories/
-│   │   ├── base.py                # BaseRepository genérico (func.count, contrato transacional)
+│   │   ├── base.py                # BaseRepository genérico
 │   │   ├── production_repository.py
 │   │   ├── quality_repository.py
 │   │   └── costing_repository.py
 │   ├── services/
-│   │   └── production_service.py  # ProductionService (validação + transação)
+│   │   └── production_service.py  # ProductionService (19 métodos)
 │   ├── database/
-│   │   └── connection.py          # SQLAlchemy engine + session factory
+│   │   └── connection.py          # SQLAlchemy engine + session factory + session_scope
 │   ├── simulation/               # (vazio — TASK-008)
 │   ├── analytics/                 # (vazio)
 │   ├── templates/                 # (vazio)
 │   └── static/                    # (vazio)
 ├── tests/
 │   ├── conftest.py               # Fixtures pytest
+│   ├── integration/
+│   │   └── test_migrations.py    # Alembic upgrade/downgrade test
 │   └── unit/
 │       ├── test_material.py
 │       ├── test_production_order.py
@@ -355,21 +443,25 @@ simulador-erp-industrial/
 │       ├── test_batch.py
 │       ├── test_recipe.py
 │       ├── test_costing_repository.py
-│       └── test_production_service.py
+│       ├── test_production_service.py
+│       └── test_api_production.py  # 36 testes de API PP-PI
 ├── database/
 │   └── migrations/                # Alembic migrations
 ├── scripts/                      # (vazio)
 ├── requirements.txt
 ├── pytest.ini
-├── alembic.ini                    # Alembic configuration
+├── alembic.ini
 ├── .env.example
-└── .venv/                        # Virtualenv com dependências instaladas
+└── .venv/
 ```
 
 ## Variáveis de Ambiente (.env.example)
 
 ```env
 DATABASE_URL=postgresql://<user>:<password>@localhost:5432/industrial_erp
+DB_POOL_SIZE=5
+DB_MAX_OVERFLOW=10
+DB_POOL_RECYCLE=3600
 APP_HOST=0.0.0.0
 APP_PORT=8000
 SECRET_KEY=change-me-in-production

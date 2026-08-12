@@ -502,3 +502,46 @@ Nenhum item CRITICAL encontrado. Os 3 HIGH são corrigíveis sem retrabalho sign
 - Server defaults garantem consistência em inserts via SQL puro
 - Logs sem dados sensíveis (URL sem credenciais)
 - Pool configuration exposta para tuning em produção
+
+---
+
+## Auditoria TASK-005 — REST API Endpoints PP-PI
+
+**Data:** 2026-08-12
+**Revisor:** Auditor de Segurança/Qualidade
+**Escopo:** `app/api/production.py`, `app/main.py`, `app/services/production_service.py`
+
+### Sumário
+
+| Severidade | Quantidade |
+|-----------|-----------|
+| CRITICAL | 0 |
+| HIGH | 0 |
+| MEDIUM | 0 |
+| LOW | 0 |
+| INFO | 1 |
+
+---
+
+### INFO
+
+**I-11 — Autenticação/Autorização não implementada**
+**Arquivo:** `app/api/production.py`
+**Observação:** Nenhum endpoint requer autenticação. Esperado nesta fase (TASK-005). Antes do deploy (TASK-009+).
+**Ação futura:** Adicionar middleware de autenticação antes de expor endpoints.
+
+---
+
+### Revalidação de Segurança
+
+| Verificação | Resultado |
+|------------|-----------|
+| Secrets no código | ✅ Nenhum |
+| SQL injection | ✅ ORM parametrizado |
+| Input validation | ✅ Pydantic (Field, enums, tipos) |
+| Stack traces em erros | ✅ Erros de domínio traduzidos (404/409/422) |
+| Endpoints sensíveis expostos | ✅ Sem dados sensíveis nos responses |
+| CORS excessivo | N/A — sem endpoints de dados ainda |
+| Logs com dados sensíveis | ✅ Apenas códigos (material_code, order_number) |
+
+**Resultado:** Nenhum item de segurança encontrado. API pronta para TASK-006 (QM).
