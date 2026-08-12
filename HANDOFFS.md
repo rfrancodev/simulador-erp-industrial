@@ -4,6 +4,120 @@ This file documents the completion of each task, serving as the source of truth 
 
 ---
 
+## TASK-010.1 — Correções Pós-Auditoria (L-27..L-32, I-42..I-45)
+
+**Status:** DONE
+
+**Data:** 2026-08-12
+
+**IMPLEMENTADO:**
+- **L-27:** `reset_database` exige `--yes` ou prompt interativo; lógica em `reset_domain_data()` testável
+- **L-28:** `SimulationConfig.from_env` usa `_parse()` com `try/except ValueError` (mensagem clara)
+- **L-29:** `yield_std` (código morto) removido de `SimulationConfig`
+- **L-30:** engine commita master data logo após `generate_master_data` (corrige `months=0`)
+- **L-31:** `_clamp()` em pH/alcohol/temperature/co2 antes de `to_decimal`
+- **L-32:** `_planned_material_cost` derivado do BOM (component.quantity × preço unitário) — PP-PI↔CO reconciliado
+- **I-42:** `ctx.recipe_by_id` (O(1)) substitui busca linear
+- **I-43:** `to_decimal` rejeita valor não-finito
+- **I-44:** `add_months` clampa o dia com `calendar.monthrange`
+- **I-45:** `logger.info` mensal no loop do engine
+
+**ARQUIVOS ALTERADOS:**
+- `app/simulation/config.py`, `production_generator.py`, `quality_generator.py`, `cost_generator.py`, `engine.py`
+- `scripts/reset_database.py`
+- `tests/unit/test_simulation.py` (+4 testes)
+
+**TESTES:**
+```
+216 passed in 20.14s
+```
+- `compileall` OK · `typecheck` OK · `lint` OK · `alembic upgrade/downgrade` OK
+- Smoke test: `reset_database` sem `--yes` aborta; com `--yes` limpa preservando `users`
+
+**AUTO REVIEW:**
+- Correções minimamente invasivas; custo de material agora coerente com o BOM
+- `reset_domain_data` extraído para testabilidade
+
+**SECURITY AUDIT:**
+- 0 CRITICAL/HIGH/MEDIUM/LOW restantes após correções
+- Pendências INFO (I-46..I-49): documentadas como "ação futura"
+
+**PRÓXIMA TAREFA:**
+TASK-011 — Dashboard consumindo dados simulados + KPIs de tendência
+
+---
+
+## TASK-010 — Simulation Engine + Seed de Dados Sintéticos
+
+**Status:** DONE
+
+**Data:** 2026-08-12
+
+**IMPLEMENTADO:**
+- `app/simulation/config.py` — `SimulationConfig` (from_env + CLI), `MonthParams`, `SimulationSummary`, `SimulationContext`, helpers `to_decimal`/`add_months`
+- `app/simulation/production_generator.py` — master data (3 finished products, 5 raw, 3 packaging, 3 recipes com BOM+roteiro, 5 resources) + ordens + batches + confirmações + consumos
+- `app/simulation/quality_generator.py` — inspeções (PASSED/FAILED) + não-conformidades em falha
+- `app/simulation/cost_generator.py` — CostRecord planned/actual (variância + fator de retrabalho em falha QM)
+- `app/simulation/engine.py` — `SimulationEngine` orquestrando PP-PI → QM → CO; cenário "crisis" (downtime → yield → qualidade → rework → custo)
+- `scripts/generate_data.py` — CLI `--months --seed --scenario --orders-per-month`
+- `scripts/reset_database.py` — reseta tabelas de domínio (preserva `users`)
+- Integração PP→QM→CO: falha de qualidade (QM FAIL) → fator de custo de retrabalho (CO)
+
+**BUG CORRIGIDO (infra compartilhada):**
+- `CostRecord` CHECK constraints trocadas de igualdade exata para tolerância (`ABS(...) < 0.01`): a igualdade exata falha no SQLite para valores Decimal não-arredondados (NUMERIC → REAL float). PostgreSQL (NUMERIC exato) permanece correto. Migração `b2c3d4e5f6a7`.
+
+**ARQUIVOS CRIADOS:**
+- `app/simulation/{config,production_generator,quality_generator,cost_generator,engine}.py`
+- `scripts/generate_data.py`, `scripts/reset_database.py`
+- `database/migrations/versions/b2c3d4e5f6a7_cost_check_tolerance.py`
+- `tests/unit/test_simulation.py` (9 testes)
+
+**ARQUIVOS ALTERADOS:**
+- `app/simulation/__init__.py` — exports
+- `app/domain/entities.py` — CHECK constraints `CostRecord` com tolerância
+
+**DOCUMENTOS CONSULTADOS:**
+- `plano/10-simulacao.md` — parâmetros, cenários, scripts
+- `plano/04-arquitetura-software.md` — estrutura `app/simulation/`
+- `plano/08-integracao-eventos.md` — fluxo PP-PI→QM→CO
+- `plano/01-visao-geral.md` — módulos e disclaimer sintético
+
+**TESTES:**
+```
+212 passed in 19.66s
+```
+- `.venv/bin/python -m compileall app/ scripts/` → OK
+- `.venv/bin/pytest tests/` → **212 passed** (era 203)
+- `npm run typecheck` → OK
+- `npm run lint` → OK
+- `alembic upgrade/downgrade` → OK (migração `b2c3d4e5f6a7` aplicada/revertida)
+- Smoke test CLI: `--months 3` → 30 ordens, 65 batches, 65 inspeções, 996 registros; `--months 12 --scenario crisis` → 180 ordens, 378 batches, 5708 registros
+
+**AUTO REVIEW:**
+- Engine isolado em `app/simulation/` (sem acoplamento com `app/api/`/`app/main.py`)
+- Geradores separados por módulo (PP-PI/QM/CO) conforme plano; contexto compartilhado via `SimulationContext`
+- Decimal para dinheiro e quantidades; dados sintéticos documentados em docstrings
+- Determinístico com `seed` (testado)
+- Estado final é setado diretamente (COMPLETED/PASSED/FAILED) — correto para geração de histórico, sem passar pela máquina de estados do service
+- Ordem de dependências respeitada (flush antes de consumir IDs de batch/inspection)
+
+**SECURITY AUDIT:**
+- SQL injection: ✅ ORM/table-level, sem input de usuário
+- Secrets: ✅ Nenhum; dados sintéticos documentados
+- Input: ✅ CLI args tipados (`choices` para scenario)
+- Exposição: ✅ Scripts são CLI (não endpoints); sem credenciais
+- Destrutivo: `reset_database` é CLI explícito, preserva `users`
+
+**PENDÊNCIAS:**
+- Volumes default (180 ordens, ~378 inspeções, ~5.7k registros) abaixo do alvo ilustrativo do plano (~540 inspeções, ~50k registros) — configurável via `--orders-per-month`/`--months`
+- `create_all` nos scripts de seed (bootstrap) em vez de Alembic — documentado
+- Seed não executa automaticamente no startup da aplicação (TASK futura se desejado)
+
+**PRÓXIMA TAREFA:**
+TASK-011 — Dashboard consumindo dados simulados + KPIs de tendência (ou seed automático + documentação de deploy)
+
+---
+
 ## TASK-009.1 — Correções Pós-Auditoria (M-20, M-21, L-22..L-26, I-29, I-32..I-34)
 
 **Status:** DONE

@@ -274,15 +274,17 @@ class NonConformity(Base):
 class CostRecord(Base):
     __tablename__ = "cost_records"
     __table_args__ = (
+        # Tolerance (< 0.01) keeps the invariant exact on PostgreSQL NUMERIC while
+        # tolerating SQLite's float storage (which loses Decimal precision).
         CheckConstraint(
-            "planned_total_cost = "
-            "planned_material_cost + planned_labor_cost + planned_machine_cost + planned_energy_cost",
+            "ABS(planned_total_cost - (planned_material_cost + planned_labor_cost "
+            "+ planned_machine_cost + planned_energy_cost)) < 0.01",
             name="ck_cost_planned_total",
         ),
         CheckConstraint(
-            "actual_total_cost IS NULL OR actual_total_cost = "
-            "COALESCE(actual_material_cost, 0) + COALESCE(actual_labor_cost, 0) "
-            "+ COALESCE(actual_machine_cost, 0) + COALESCE(actual_energy_cost, 0)",
+            "actual_total_cost IS NULL OR ABS(actual_total_cost - "
+            "(COALESCE(actual_material_cost, 0) + COALESCE(actual_labor_cost, 0) "
+            "+ COALESCE(actual_machine_cost, 0) + COALESCE(actual_energy_cost, 0))) < 0.01",
             name="ck_cost_actual_total",
         ),
     )

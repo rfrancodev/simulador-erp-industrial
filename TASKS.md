@@ -370,7 +370,25 @@ Evitar tarefas gigantes como "Implementar todo o módulo PP-PI."
 - I-29: warning SECRET_KEY fraco · I-32: claim `role` removido · I-33: getpass CLI · I-34: lockout de conta (423)
 - 203 testes (era 190). Migração `a1b2c3d4e5f6` (failed_attempts/locked_until)
 
-### Próxima: TASK-010 — Simulation Engine + Seed de Dados Sintéticos
+### TASK-010 — Simulation Engine + Seed de Dados Sintéticos
+**Status:** DONE
+- `app/simulation/`: `config`, `production_generator`, `quality_generator`, `cost_generator`, `engine`
+- Gera master data (3 produtos acabados, 8 insumos, 3 receitas c/ BOM+roteiro, 5 recursos)
+- Fluxo PP-PI→QM→CO: ordens → batches → inspeções → cost records; falha QM → custo de retrabalho
+- Cenário "crisis" (causa e efeito: downtime → yield → qualidade → rework → custo)
+- Scripts `generate_data.py` (`--months/--seed/--scenario`) e `reset_database.py`
+- Bug corrigido: CHECK constraints `CostRecord` → tolerância `< 0.01` (float SQLite); migração `b2c3d4e5f6a7`
+- 212 testes (era 203)
+
+### TASK-010.1 — Correções Pós-Auditoria
+**Status:** DONE
+- L-27: reset com `--yes`/prompt · L-28: `from_env` valida env · L-29: `yield_std` removido
+- L-30: commit master data (`months=0`) · L-31: clamp de parâmetros de inspeção
+- L-32: custo de material derivado do BOM + preços unitários (PP-PI↔CO reconciliado)
+- I-42..I-45: recipe_by_id O(1), to_decimal valida finito, add_months clampa dia, log mensal
+- 216 testes (era 212)
+
+### Próxima: TASK-011 — Dashboard consumindo dados simulados + KPIs de tendência
 
 ---
 

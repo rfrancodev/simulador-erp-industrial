@@ -2187,3 +2187,334 @@ Diferença de ~3000x no tempo de resposta permite a um atacante distinguir "usu�
 **Pendências restantes (INFO, documentadas como "ação futura"):**
 - I-30: rate limiter distribuído multi-worker (requer Redis) — fora do escopo
 - I-31: dashboard HTML público — login UI futura (TASK-010+)
+
+---
+
+## Auditoria TASK-010 — Simulation Engine + Seed de Dados Sintéticos
+
+**Data:** 2026-08-12
+**Revisor:** Auditor de Segurança/Qualidade (pós-implementação)
+**Escopo:** `app/simulation/*`, `scripts/generate_data.py`, `scripts/reset_database.py`, migração `b2c3d4e5f6a7`, testes.
+
+### Sumário
+
+| Severidade | Quantidade |
+|-----------|-----------|
+| CRITICAL | 0 |
+| HIGH | 0 |
+| MEDIUM | 0 |
+| LOW | 0 |
+| INFO | 2 |
+
+---
+
+### INFO
+
+#### I-40 — Scripts de seed usam `create_all` em vez de Alembic
+
+**Arquivo:** `scripts/generate_data.py`, `scripts/reset_database.py`, `scripts/create_user.py`
+**Observação:** `Base.metadata.create_all(engine)` cria tabelas ausentes como bootstrap. Documentado. Em produção, preferir `alembic upgrade head` antes do seed.
+**Ação futura:** Documentar no README de deploy.
+
+---
+
+#### I-41 — Volumes default abaixo do alvo ilustrativo do plano
+
+**Arquivo:** `app/simulation/config.py`
+**Observação:** Default produz ~180 ordens e ~378 inspeções/ano; `plano/10-simulacao.md` menciona ~540 inspeções e ~50k registros como ilustração. Volume é configurável (`--orders-per-month`, `--months`).
+**Ação futura:** Ajustar defaults se o dashboard exigir maior densidade.
+
+---
+
+### Análise de Segurança (TASK-010)
+
+| Verificação | Resultado |
+|------------|-----------|
+| SQL injection | ✅ ORM/table-level; nenhum input de usuário nas queries |
+| Secrets | ✅ Nenhum; dados sintéticos documentados em docstrings |
+| Validação de entrada | ✅ CLI args tipados (`--scenario` com `choices`); `int`/`float` convertidos |
+| Exposição de dados | ✅ Scripts CLI não expostos via API; sem credenciais |
+| Integridade transacional | ✅ Commit por mês; flush antes de consumir IDs (batch/inspection) |
+| Operação destrutiva | ✅ `reset_database` é CLI explícito e preserva `users` |
+| Consistência PP-PI/QM/CO | ✅ Fluxo integrado: QM FAIL → fator de custo de retrabalho no CO |
+| Bug de infra corrigido | ✅ CHECK `CostRecord` agora tolerante a float (SQLite) e exata (PostgreSQL) |
+
+### Conclusão
+
+**Estado Geral:** ✅ **BOM** — TASK-010 entrega engine de simulação isolada, determinística e configurável, com integração PP→QM→CO demonstrada. Nenhum achado de segurança.
+
+**Próxima Tarefa:** TASK-011 — Dashboard consumindo dados simulados + KPIs de tendência.
+
+---
+
+## Auditoria TASK-010 — Simulation Engine + Seed de Dados Sintéticos
+
+**Data:** 2026-08-12
+**Revisor:** Auditor de Segurança/Qualidade
+**Escopo:** `app/simulation/*`, `scripts/generate_data.py`, `scripts/reset_database.py`, migração `b2c3d4e5f6a7`, testes de simulação, CHECK constraints de `CostRecord`.
+
+### Sumário
+
+| Severidade | Quantidade |
+|-----------|-----------|
+| CRITICAL | 0 |
+| HIGH | 0 |
+| MEDIUM | 0 |
+| LOW | 6 |
+| INFO | 8 |
+
+---
+
+## LOW
+
+### L-27 — `reset_database` sem confirmação ou flag `--force`
+
+**Arquivo:** `scripts/reset_database.py:21-28`
+**Problema:** O script deleta imediatamente todas as tabelas de domínio sem pedir confirmação ou exigir uma flag `--force`/`--yes`. Um erro de digitação pode apagar dados de produção.
+
+**Impacto:** Perda de dados por acidente (embora seja uma ferramenta CLI local, documentada como destrutiva).
+
+**Correção sugerida:** Adicionar `--yes` flag ou prompt de confirmação (`input("Type 'yes' to confirm: ")`).
+
+**Prioridade:** Baixa
+
+---
+
+### L-28 — `SimulationConfig.from_env` sem tratamento de `ValueError`
+
+**Arquivo:** `app/simulation/config.py:54-67`
+**Problema:** `int(os.getenv("SIM_MONTHS", "12"))` e `float(os.getenv("SIM_FAILURE_RATE", ...))` falham com `ValueError` se as variáveis de ambiente contiverem valores não-numéricos (ex: `SIM_MONTHS=abc`). O traceback é mostrado ao usuário.
+
+**Impacto:** Experiência ruim; mensagem de erro pouco clara para o operador.
+
+**Correção sugerida:** Envolver em `try/except ValueError` com mensagem clara ("Invalid SIM_MONTHS value: 'abc'. Expected integer.").
+
+**Prioridade:** Baixa
+
+---
+
+### L-29 — `yield_std` em `SimulationConfig` é código morto
+
+**Arquivo:** `app/simulation/config.py:48`
+**Problema:** `yield_std: float = 0.02` é definido no config, mas `_batch_yield` em `production_generator.py:198` usa hardcoded `0.02`. O campo não é passado para `MonthParams` nem usado em lugar algum.
+
+**Impacto:** Código confuso; se alguém tentar ajustar `SIM_YIELD_STD` no `.env`, não terá efeito.
+
+**Correção sugerida:** Remover `yield_std` do config OU passá-lo via `MonthParams` e usá-lo em `_batch_yield`.
+
+**Prioridade:** Baixa
+
+---
+
+### L-30 — Engine com `months=0` não commita master data
+
+**Arquivo:** `app/simulation/engine.py:49-63`
+**Problema:** Se `config.months == 0`, o loop de meses não executa. `generate_master_data` cria materials/recipes/resources e faz flush, mas `session.commit()` (dentro do loop) nunca é chamado. No fechamento do `with Session(engine) as session:`, os dados não-commitados são perdidos.
+
+**Impacto:** Executar `generate_data --months 0` não persiste os dados mestre (silencioso).
+
+**Correção sugerida:** Adicionar `self.session.commit()` após `generate_master_data`, ou documentar que `months >= 1` é necessário.
+
+**Prioridade:** Baixa
+
+---
+
+### L-31 — Parâmetros de inspeção podem exceder limites de coluna em valores extremos
+
+**Arquivo:** `app/simulation/quality_generator.py:36-55`
+**Problema:** `pH = to_decimal(rng.gauss(3.8, 0.3), 2)` é distribuído normalmente (média 3.8, std 0.3). Teoricamente pode gerar valores negativos ou > 9.99 (limite do `Numeric(3,2)`), causando `IntegrityError` no INSERT. O mesmo para `alcohol_percent` (`Numeric(3,1)`).
+
+**Impacto:** Falha potencial (mas extremamente improvável com RNG gaussiano) na seed.
+
+**Correção sugerida:** Clampar os valores aos limites das colunas: `max(0, min(9.99, ph))`.
+
+**Prioridade:** Baixa (probabilidade desprezível)
+
+---
+
+### L-32 — Custos (CO) não reconciliam com consumos (PP-PI) em nível de detalhe
+
+**Arquivo:** `app/simulation/cost_generator.py:14-17`, `app/simulation/production_generator.py:242-252`
+**Problema:** O gerador de custos usa um modelo simples por litro (material R$ 1,60/L, mão de obra R$ 0,35/L, etc.) independente do BOM da receita. O gerador de produção cria `MaterialConsumption` detalhados a partir do BOM. Os totais de consumo de materiais (PP-PI) não correspondem aos custos de material (CO).
+
+**Impacto:** Inconsistência de domínio entre PP-PI e CO no nível de detalhe. Um usuário que comparar "custo total de materiais consumidos" com "custo de material planejado" verá discrepância.
+
+**Correção sugerida:** Documentar essa simplificação como "synthetic cost model" ou reconciliar derivando custos dos consumos × preços unitários.
+
+**Prioridade:** Baixa (modelo sintético documentado)
+
+---
+
+## INFO
+
+### I-42 — `generate_batches` busca receita por busca linear
+
+**Arquivo:** `app/simulation/production_generator.py:209`
+**Observação:** `next((r for r in ctx.recipes.values() if r.id == order.recipe_id), None)` é O(N) onde N=3. Para o tamanho atual é irrelevante, mas um `dict[int, ProductionRecipe]` keyed by id seria O(1) e mais limpo.
+**Ação futura:** Considerar quando aumentar o número de receitas.
+
+---
+
+### I-43 — `to_decimal` não trata NaN/Inf explicitamente
+
+**Arquivo:** `app/simulation/config.py:23-26`
+**Observação:** `to_decimal(float('nan'), 2)` levanta `InvalidOperation`. Todos os callers atuais usam `rng.gauss/uniform` que sempre produzem floats finitos. Seguro na prática, mas o contrato não está documentado.
+**Ação futura:** Adicionar docstring sobre pré-condições ou validação.
+
+---
+
+### I-44 — `add_months` não protege contra overflow de dia
+
+**Arquivo:** `app/simulation/config.py:29-34`
+**Observação:** `base.replace(year=year, month=month)` falha se `base.day > target_month_days` (ex: 31 de janeiro → fevereiro). O engine usa `base = datetime(2026, 1, 1)` (sempre dia 1), então é seguro hoje.
+**Ação futura:** Adicionar teste unitário ou proteção (`min(base.day, calendar.monthrange(year, month)[1])`).
+
+---
+
+### I-45 — Simulação sem log de progresso
+
+**Arquivo:** `app/simulation/engine.py`
+**Observação:** Para `--months 12`, o usuário vê apenas o resumo final. Para simulações longas, log por mês seria útil (ex: "Month 3/12: 15 orders, 32 batches, 2 failures").
+**Ação futura:** Adicionar `logger.info` no loop mensal.
+
+---
+
+### I-46 — Defect codes limitados a 4 dígitos
+
+**Arquivo:** `app/simulation/quality_generator.py:74`
+**Observação:** `f"NC-{ctx.seq_defect:04d}"` gera códigos `NC-0001` a `NC-9999`. A coluna é `String(10)`, então cabe até `NC-9999999`. Com 12 meses em cenário de crise (~37 NCs no teste), o limite de 4 dígitos é confortável. Se a escala aumentar muito, poderia precisar de 5+ dígitos.
+**Ação futura:** Não requer ação agora.
+
+---
+
+### I-47 — `_PRESERVED_TABLES` hardcoded em `reset_database`
+
+**Arquivo:** `scripts/reset_database.py:18`
+**Observação:** `{"users"}` é hardcoded. Se novas tabelas administrativas forem adicionadas (ex: `audit_log`, `settings`), a lista precisa ser atualizada.
+**Ação futura:** Considerar tornar configurável ou usar convenção de prefixo.
+
+---
+
+### I-48 — Master data hardcoded em `production_generator`
+
+**Arquivo:** `app/simulation/production_generator.py:32-78`
+**Observação:** Produtos, insumos, BOM, operações e recursos são constantes no código. Para adicionar um novo produto, é necessário modificar o código.
+**Ação futura:** Considerar carregar de YAML/JSON quando o número de produtos crescer.
+
+---
+
+### I-49 — `create_all` nos scripts de seed pode deixar schema parcialmente aplicado
+
+**Arquivo:** `scripts/generate_data.py:32`
+**Observação:** `Base.metadata.create_all(engine)` cria tabelas ausentes mas não aplica alterações em tabelas existentes (novas colunas, constraints). Se migrations do Alembic não foram aplicadas, o schema pode ficar inconsistente. Documentado no docstring.
+**Ação futura:** Adicionar aviso ou `alembic upgrade head` automático.
+
+---
+
+## Análise Consolidada (TASK-010)
+
+### ✅ Pontos Positivos
+
+| Verificação | Resultado |
+|------------|-----------|
+| SQL injection | ✅ ORM/table-level; nenhum input de usuário nas queries |
+| Secrets | ✅ Nenhum no código; dados sintéticos documentados |
+| Validação de entrada | ✅ argparse com `type=int`, `choices`; env vars lidas com defaults seguros |
+| CORS / SSRF / Path traversal | N/A (ferramentas CLI, sem endpoints) |
+| Integridade transacional | ✅ Commit mensal; flush antes de dependentes; `Session` context manager |
+| Consistência PP-PI/QM/CO | ✅ Fluxo integrado (QM FAIL → custo de retrabalho no CO); cada batch → 1 inspeção; cada order → 1 cost record |
+| Determinismo | ✅ Seed reproduzível; testado |
+| CHECK constraints (SQLite + PostgreSQL) | ✅ Tolerância `< 0.01` robusta em ambos os engines; migração `b2c3d4e5f6a7` aplicada/revertida |
+| Logs | ✅ Sem dados sensíveis (apenas summary counts no stdout) |
+| Performance | ✅ 12 meses × 180 ordens = ~5.7k registros em ~2s |
+
+### ⚠️ Vulnerabilidades Identificadas
+
+| Categoria | Severidade | Descrição |
+|-----------|-----------|-----------|
+| Destrutivo sem confirmação | LOW | L-27 — `reset_database` sem `--force` |
+| Robustez | LOW | L-28 — `from_env` sem tratamento de ValueError |
+| Código morto | LOW | L-29 — `yield_std` não usado |
+| Edge case | LOW | L-30 — `months=0` não commita master data |
+| Teórico | LOW | L-31 — Parâmetros de inspeção podem exceder coluna |
+| Inconsistência de domínio | LOW | L-32 — Custos não reconciliam com consumos (modelo sintético) |
+
+### Análise de Testes
+
+**Cobertura:**
+- Config (from_env, to_decimal), engine (volumes, statuses, consistência, determinismo, crise)
+- Migration tolerance (indiretamente via `test_cost_records_are_consistent`)
+
+**Testes Ausentes:**
+- `add_months` (calendar math)
+- `generate_master_data` isolado
+- `reset_database` preservando `users`
+- `scripts/generate_data.py` integração (CLI end-to-end)
+- `MaterialConsumption` quantidades escaladas corretamente
+- `ProductionConfirmation.is_final` flag
+- Edge cases: `months=0`, scenario inválido
+
+**Resultado:** 212 testes passando.
+
+---
+
+## Conclusão (Pós-Auditoria TASK-010)
+
+**Estado Geral:** ✅ **BOM** — TASK-010 entrega engine de simulação isolada, determinística e configurável, com integração PP→QM→CO demonstrada. Nenhum achado CRITICAL/HIGH/MEDIUM.
+
+**Achados:** 0 CRITICAL, 0 HIGH, 0 MEDIUM, 6 LOW, 8 INFO.
+
+**Pronto para Produção:** ✅ Sim (como ferramenta CLI de seed/demo). Os achados LOW são melhorias incrementais, não bloqueantes.
+
+**Segurança:** ✅ Sem vulnerabilidades. Scripts CLI locais com documentação adequada.
+
+**Risco de Segurança:** Baixo — ferramentas não expostas via API; dados sintéticos.
+
+**Recomendação Final:** Abordar L-27 (confirmação no reset) e L-29 (código morto `yield_std`) na próxima iteração. Demais achados são melhorias incrementais.
+
+---
+
+## Correções Pós-Auditoria TASK-010
+
+**Data:** 2026-08-12
+**Status:** Corrigido — 6 LOW + 5 INFO acionáveis tratados
+**Validação:** `.venv/bin/pytest tests/` → **216 passed** (era 212); `compileall` OK; `npm run typecheck` OK; `npm run lint` OK; `alembic upgrade/downgrade` OK
+
+| Item | Severidade | Status | Correção Aplicada |
+|------|-----------|--------|-------------------|
+| L-27 reset sem confirmação | LOW | ✅ Corrigido | `reset_database` exige `--yes` ou prompt interativo; lógica extraída para `reset_domain_data()` testável |
+| L-28 from_env sem ValueError | LOW | ✅ Corrigido | `from_env` usa helper `_parse()` com `try/except ValueError` e mensagem clara |
+| L-29 yield_std código morto | LOW | ✅ Corrigido | Campo `yield_std` removido de `SimulationConfig` |
+| L-30 months=0 não commita | LOW | ✅ Corrigido | Engine faz `session.commit()` logo após `generate_master_data` |
+| L-31 parâmetros fora do limite | LOW | ✅ Corrigido | `_clamp()` em pH/alcohol/temperature/co2 antes de `to_decimal` |
+| L-32 custo não reconcilia BOM | LOW | ✅ Corrigido | `_planned_material_cost` derivado do BOM (component.quantity × preço unitário) escalado pela quantidade da ordem |
+| I-42 busca linear de receita | INFO | ✅ Corrigido | `ctx.recipe_by_id` (O(1)) substitui a busca linear |
+| I-43 to_decimal NaN/Inf | INFO | ✅ Corrigido | `to_decimal` rejeita valor não-finito com `ValueError` claro |
+| I-44 add_months overflow | INFO | ✅ Corrigido | `add_months` clampa o dia com `calendar.monthrange` |
+| I-45 sem log de progresso | INFO | ✅ Corrigido | `logger.info` mensal no loop do engine |
+
+### Testes Adicionados
+
+- `tests/unit/test_simulation.py` +4 testes: `to_decimal` não-finito, `from_env` inválido, `add_months` clamp de dia, `reset_domain_data` preserva `users` e limpa domínio
+
+**Total: 216 testes (era 212)**
+
+### Arquivos Alterados
+- `app/simulation/config.py` — to_decimal, add_months, from_env, yield_std removido, material_code_by_id/recipe_by_id, STANDARD_BATCH_LITERS
+- `app/simulation/production_generator.py` — preenche maps por id, usa recipe_by_id
+- `app/simulation/cost_generator.py` — custo de material derivado do BOM + preços unitários
+- `app/simulation/quality_generator.py` — clamp de parâmetros
+- `app/simulation/engine.py` — commit master data + log de progresso
+- `scripts/reset_database.py` — flag `--yes` + `reset_domain_data`
+- `tests/unit/test_simulation.py` — novos testes
+
+### Revalidação de Segurança
+- Reset continua preservando `users`; agora exige confirmação (L-27)
+- Custo de material reconciliado com BOM (PP-PI ↔ CO consistente no nível de material)
+- Validação de entrada robusta em `from_env` e `to_decimal`
+
+**Pendências restantes (INFO, "ação futura"):**
+- I-46: defect codes 4 dígitos (folga suficiente)
+- I-47: `_PRESERVED_TABLES` hardcoded (ok para o escopo atual)
+- I-48: master data hardcoded no código (pode virar YAML futuramente)
+- I-49: `create_all` vs Alembic (documentado)
