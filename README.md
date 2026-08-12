@@ -150,6 +150,7 @@ tests/                 # unit + integration
 
 ## Documentation
 
+- `docs/` — ARCHITECTURE, BUSINESS_PROCESS, DATA_MODEL, SAP_MAPPING, RUNBOOK
 - `plano/` — architecture, domains, integration and simulation planning (source of truth)
 - `TASKS.md` — task cycle and history
 - `auditoria.md` — security/quality audit reports

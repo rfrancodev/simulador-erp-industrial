@@ -4,6 +4,39 @@ This file documents the completion of each task, serving as the source of truth 
 
 ---
 
+## TASK-014 — Documentação `docs/` + LICENSE
+
+**Status:** DONE
+
+**Data:** 2026-08-12
+
+**IMPLEMENTADO:**
+- `docs/ARCHITECTURE.md` — camadas, integração via eventos, state machines, segurança
+- `docs/BUSINESS_PROCESS.md` — fluxo PP-PI→QM→CO, cenários normal/crise, roles
+- `docs/DATA_MODEL.md` — entidades, relacionamentos, constraints, enums
+- `docs/SAP_MAPPING.md` — mapeamento conceitual para SAP S/4HANA (disclaimer)
+- `docs/RUNBOOK.md` — local/Docker/produção, setup do domínio `erp.francorafael.com` (Cloudflare), manutenção, checklist de segurança
+- `LICENSE` (MIT)
+- `README.md` — link para `docs/`
+
+**ARQUIVOS CRIADOS:**
+- `docs/{ARCHITECTURE,BUSINESS_PROCESS,DATA_MODEL,SAP_MAPPING,RUNBOOK}.md`, `LICENSE`
+
+**ANÁLISE DE DOMÍNIO (erp.francorafael.com):**
+- Viável: `francorafael.com` já está na Cloudflare; o subdomínio `erp` usa Universal SSL (wildcard) automaticamente.
+- DNS: registro `erp` (CNAME → `francorafael.com` ou `A` → IP da VPS), proxy laranja.
+- Alternativa sem portas abertas: Cloudflare Tunnel roteando `erp.francorafael.com` → `http://localhost:8000`.
+
+**TESTES:**
+```
+248 passed (sem mudança de código Python)
+```
+
+**PRÓXIMA TAREFA:**
+Nenhuma — sequência concluída. Pendências: automação externa (opcional), I-84/I-86 (decisões de infra).
+
+---
+
 ## TASK-019.1/TASK-020.1 — Correções Pós-Auditoria (L-43, I-82, I-83, I-85)
 
 **Status:** DONE

@@ -439,13 +439,13 @@ Evitar tarefas gigantes como "Implementar todo o módulo PP-PI."
 
 ### Pendências Registradas (não executar agora)
 
-**Documentação `docs/` + LICENSE** (previsto em `plano/12`) — **REGISTRADA, não executar agora**:
-- `docs/ARCHITECTURE.md`, `docs/BUSINESS_PROCESS.md`, `docs/DATA_MODEL.md`, `docs/SAP_MAPPING.md`, `docs/RUNBOOK.md`
-- `LICENSE`
-
 **Automação externa** (`plano/11`) — **OPCIONAL, não executar**:
 - Integração n8n (alerta de quality failure)
 - Integração Power BI
+
+**Decisões de infra (próxima etapa):**
+- I-84: pinar hadolint-action a commit SHA
+- I-86: imagem base alpine vs slim (trade-off compatibilidade)
 
 ### Sequência de Execução (atualizada)
 
@@ -524,10 +524,16 @@ TASK-020 → CI/hardening (multi-stage build, hadolint, docker compose config)
 - I-85: cache pip no CI
 - Adiados (decisão): I-84 (pinar hadolint SHA), I-86 (alpine vs slim)
 
+### TASK-014 — Documentação `docs/` + LICENSE
+**Status:** DONE
+- `docs/ARCHITECTURE.md`, `docs/BUSINESS_PROCESS.md`, `docs/DATA_MODEL.md`, `docs/SAP_MAPPING.md`, `docs/RUNBOOK.md`
+- `LICENSE` (MIT)
+- RUNBOOK inclui setup do domínio `erp.francorafael.com` (Cloudflare DNS/SSL/Tunnel)
+- README atualizado com link para `docs/`
+
 ### Sequência Concluída
 
-Todas as tasks da sequência foram concluídas. Pendências registradas (não executar agora):
-- **Documentação `docs/` + LICENSE** (previsto em `plano/12`) — REGISTRADA
+Todas as tasks da sequência foram concluídas. Pendências restantes:
 - **Automação externa n8n/Power BI** (`plano/11`) — OPCIONAL
 - **I-84/I-86** — decisões de infra (pinar SHA, imagem base)
 
