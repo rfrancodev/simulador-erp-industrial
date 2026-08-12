@@ -1,0 +1,21 @@
+# Reverse proxy template for the Industrial ERP Simulator API (production).
+#
+# 1. Copy to nginx.conf and replace <DOMAIN> with the public domain
+#    (suggested: erp.francorafael.com).
+# 2. This listens on HTTP (port 80). TLS is terminated upstream by Cloudflare
+#    (DNS + SSL proxy) or Nginx Proxy Manager — the app sees HTTP from the proxy.
+# 3. Assumes the FastAPI container is reachable as host `api` on port 8000
+#    (Docker network).
+
+server {
+    listen 80;
+    server_name <DOMAIN>;
+
+    location / {
+        proxy_pass http://api:8000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}

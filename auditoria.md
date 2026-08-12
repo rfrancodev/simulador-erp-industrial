@@ -3555,3 +3555,187 @@ oee = min(1.0, availability * performance * quality)
 **Risco de Segurança:** Baixo — integração in-process, sem exposição externa.
 
 **Recomendação Final:** Os achados INFO são melhorias incrementais (testes, logs, configurabilidade). Nenhum bloqueante.
+
+---
+
+## Auditoria TASK-019 — Infraestrutura real (deploy VPS/Cloudflare/PostgreSQL central)
+
+**Data:** 2026-08-12
+**Revisor:** Auditor de Segurança/Qualidade (pós-implementação)
+**Escopo:** `docker-compose.prod.yml`, `deploy/nginx.conf`, `README.md` (seção Deployment).
+
+### Sumário
+
+| Severidade | Quantidade |
+|-----------|-----------|
+| CRITICAL | 0 |
+| HIGH | 0 |
+| MEDIUM | 0 |
+| LOW | 1 |
+| INFO | 2 |
+
+---
+
+### ✅ Pontos Positivos
+
+| Verificação | Resultado |
+|------------|-----------|
+| Secrets | ✅ `DATABASE_URL` e `SECRET_KEY` obrigatórios (sem fallback) |
+| Reverse proxy | ✅ `TRUST_PROXY_HEADERS=true` para `X-Forwarded-For` |
+| Resiliência | ✅ `restart: always` para produção |
+| Resource limits | ✅ `mem_limit: 512m` contra OOM |
+| Documentação | ✅ README com instruções claras de deploy |
+
+---
+
+## LOW
+
+### L-43 — `<DOMAIN>` placeholder no nginx.conf
+
+**Arquivo:** `deploy/nginx.conf:9`
+**Problema:** O `server_name <DOMAIN>` precisa ser substituído pelo domínio real antes do uso. Está documentado no comentário (`Replace <DOMAIN> with the public domain`), mas é um passo manual que pode ser esquecido.
+**Impacto:** Se esquecido, o nginx não funcionará corretamente.
+**Correção sugerida:** Adicionar script de deploy que valida/substitui o domínio, ou tornar obrigatório via variável de ambiente.
+**Prioridade:** Baixa
+
+---
+
+## INFO
+
+### I-82 — Sem healthcheck no docker-compose.prod.yml
+
+**Arquivo:** `docker-compose.prod.yml`
+**Observação:** O serviço `api` não tem `healthcheck` definido. O `/health` endpoint existe, mas não é usado pelo compose.
+**Ação futura:** Adicionar `healthcheck` usando `curl http://localhost:8000/health`.
+
+---
+
+### I-83 — nginx.conf só escuta porta 80 (HTTP)
+
+**Arquivo:** `deploy/nginx.conf:8`
+**Observação:** O nginx só escuta `listen 80` (HTTP). HTTPS/SSL deve ser feito pelo Cloudflare (DNS + SSL proxy) ou pelo Nginx Proxy Manager.
+**Ação futura:** Adicionar redirect HTTP→HTTPS ou documentação explícita de que o SSL é feito no Cloudflare/proxy.
+
+---
+
+## Conclusão (TASK-019)
+
+**Estado:** ✅ **BOM** — Configurações de produção sólidas, com secrets obrigatórios e resource limits.
+**Achados:** 0 CRITICAL, 0 HIGH, 0 MEDIUM, 1 LOW, 2 INFO.
+
+---
+
+## Auditoria TASK-020 — CI/hardening (multi-stage build, hadolint, docker compose config)
+
+**Data:** 2026-08-12
+**Revisor:** Auditor de Segurança/Qualidade (pós-implementação)
+**Escopo:** `Dockerfile` (multi-stage), `.github/workflows/ci.yml`, `.dockerignore`.
+
+### Sumário
+
+| Severidade | Quantidade |
+|-----------|-----------|
+| CRITICAL | 0 |
+| HIGH | 0 |
+| MEDIUM | 0 |
+| LOW | 0 |
+| INFO | 3 |
+
+---
+
+### ✅ Pontos Positivos
+
+| Verificação | Resultado |
+|------------|-----------|
+| Non-root user | ✅ `appuser` (uid 1000) no runtime |
+| Multi-stage build | ✅ Reduz tamanho da imagem (sem pip/build tools) |
+| Imagem base | ✅ `python:3.11-slim` (oficial, glibc) |
+| .dockerignore | ✅ Abrangente (exclui `.git`, `.github`, `.env`, `deploy`, legado) |
+| GitHub Actions | ✅ Actions oficiais com versões específicas (`@v4`, `@v5`) |
+| hadolint | ✅ Validação do Dockerfile |
+| docker compose config | ✅ Validação dos compose files |
+
+---
+
+## INFO
+
+### I-84 — hadolint-action pinned a tag (não commit hash)
+
+**Arquivo:** `.github/workflows/ci.yml:33`
+**Observação:** `hadolint/hadolint-action@v3.1.0` é pinned a uma tag. Para reprodutibilidade total, é melhor prática pinar o commit hash (ex: `hadolint/hadolint-action@<commit-sha>`).
+**Impacto:** Baixo — tags são estáveis para releases oficiais.
+**Ação futura:** Considerar pinar ao commit hash para reprodutibilidade máxima.
+
+---
+
+### I-85 — Sem caching de pip no CI
+
+**Arquivo:** `.github/workflows/ci.yml`
+**Observação:** O CI instala dependências com `pip install -r requirements.txt` sem caching. Adicionar `actions/cache@v3` para `/root/.cache/pip` aceleraria o CI.
+**Impacto:** Performance (CI mais lento), não segurança.
+**Ação futura:** Adicionar caching de pip.
+
+---
+
+### I-86 — Multi-stage usa slim (glibc); poderia usar alpine (musl)
+
+**Arquivo:** `Dockerfile:3,15`
+**Observação:** `python:3.11-slim` usa glibc (compatibilidade ampla, imagem ~120MB). `python:3.11-alpine` usa musl (imagem menor ~50MB, mas pode ter problemas de compatibilidade com algumas libs Python que dependem de C extensions).
+**Impacto:** Trade-off entre tamanho e compatibilidade.
+**Ação futura:** Avaliar se `alpine` é viável para as dependências do projeto.
+
+---
+
+## Conclusão (TASK-020)
+
+**Estado:** ✅ **BOM** — Dockerfile multi-stage com non-root user, CI com hadolint + compose validation, .dockerignore abrangente.
+**Achados:** 0 CRITICAL, 0 HIGH, 0 MEDIUM, 0 LOW, 3 INFO.
+
+---
+
+## Auditoria Consolidada (TASK-019 + TASK-020)
+
+**Estado Geral:** ✅ **BOM** — Infraestrutura de deploy e CI sólida, seguindo boas práticas de segurança e performance.
+
+**Achados totais:** 0 CRITICAL, 0 HIGH, 0 MEDIUM, 1 LOW, 5 INFO.
+
+**Pronto para Produção:** ✅ Sim (após substituir `<DOMAIN>` no nginx.conf e configurar SECRET_KEY).
+
+**Segurança:** ✅ Non-root user, secrets obrigatórios, resource limits, validação de Dockerfile/compose.
+
+**Risco de Segurança:** Baixo — configuração profissional de infraestrutura.
+
+**Recomendação Final:** Os achados são melhorias incrementais (I-82 a I-86). Nenhum bloqueante para produção.
+
+---
+
+## Correções Pós-Auditoria TASK-019/TASK-020
+
+**Data:** 2026-08-12
+**Status:** Corrigido — 1 LOW + 3 INFO tratados; 2 INFO adiados (decisão)
+**Validação:** `.venv/bin/pytest tests/` → **248 passed** (sem mudança de código Python); YAML compose prod + ci.yml validados
+
+| Item | Severidade | Status | Correção Aplicada |
+|------|-----------|--------|-------------------|
+| L-43 `<DOMAIN>` placeholder | LOW | ✅ Corrigido | `deploy/nginx.conf` → `deploy/nginx.conf.example` (template explícito) + comentário de substituição |
+| I-82 sem healthcheck | INFO | ✅ Corrigido | `healthcheck` no `docker-compose.prod.yml` (urllib → `/health`) |
+| I-83 nginx só porta 80 | INFO | ✅ Corrigido | Comentário documenta que TLS é terminado no Cloudflare/Nginx Proxy Manager |
+| I-85 sem cache pip | INFO | ✅ Corrigido | `cache: "pip"` no `actions/setup-python` |
+
+### Adiados (dependem de decisão — próxima etapa)
+
+| Item | Motivo |
+|------|--------|
+| I-84 pinar hadolint-action a commit hash | Requer obter o SHA do release (tag `@v3.1.0` é aceitável) |
+| I-86 alpine vs slim | Trade-off compatibilidade (musl vs glibc) — decisão de imagem base |
+
+### Arquivos Alterados
+- `deploy/nginx.conf` → `deploy/nginx.conf.example` (renomeado + comentários)
+- `docker-compose.prod.yml` — healthcheck
+- `.github/workflows/ci.yml` — cache pip
+- `README.md` — referência atualizada para `nginx.conf.example`
+
+### Revalidação de Segurança
+- Healthcheck valida API + DB (`/health` faz `SELECT 1`)
+- Template nginx explícito (não é config de produção pronta)
+- Cache pip não afeta segurança

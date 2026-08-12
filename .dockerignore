@@ -1,6 +1,7 @@
 # Version control / environment
 .git
 .gitignore
+.github
 .env
 .venv
 venv
@@ -26,6 +27,11 @@ tsconfig.app.json
 tsconfig.node.json
 vite.config.ts
 .oxlintrc.json
+
+# Infra (host-side, not needed in the runtime image)
+deploy
+docker-compose.yml
+docker-compose.prod.yml
 
 # Docs & tests (not needed in the runtime image)
 tests

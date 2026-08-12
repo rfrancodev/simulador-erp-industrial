@@ -96,6 +96,33 @@ uvicorn app.main:app --reload
 
 Roles: `viewer` (read), `operator` (write), `admin` (write + delete + user management).
 
+## Deployment (Production)
+
+Target: Oracle Cloud VPS + Docker + Cloudflare (see `plano/02-arquitetura-infraestrutura.md`).
+
+1. **Database** — reuse a shared PostgreSQL instance (schema/database `industrial_erp`).
+2. **Run** the production compose (no local `db` service):
+
+   ```bash
+   DATABASE_URL=postgresql://<user>:<pass>@<host>:5432/industrial_erp \
+   SECRET_KEY=<random-32-bytes> \
+   docker compose -f docker-compose.prod.yml up --build -d
+   ```
+
+3. **Reverse proxy** — use Nginx Proxy Manager (or `deploy/nginx.conf.example`) pointing to
+   `api:8000`, with `X-Forwarded-For` headers.
+4. **Cloudflare** — DNS + SSL (proxy) for the public domain (suggested
+   `erp.francorafael.com`), optionally via Cloudflare Tunnel to the VPS.
+
+Bootstrap the admin and seed data on the host:
+
+```bash
+docker compose -f docker-compose.prod.yml exec api \
+  python -m scripts.create_user --username admin --password <secret> --role admin
+docker compose -f docker-compose.prod.yml exec api \
+  python -m scripts.generate_data --months 12 --scenario normal
+```
+
 ## Tests
 
 ```bash

@@ -4,6 +4,105 @@ This file documents the completion of each task, serving as the source of truth 
 
 ---
 
+## TASK-019.1/TASK-020.1 — Correções Pós-Auditoria (L-43, I-82, I-83, I-85)
+
+**Status:** DONE
+
+**Data:** 2026-08-12
+
+**IMPLEMENTADO:**
+- **L-43:** `deploy/nginx.conf` → `deploy/nginx.conf.example` (template explícito) + comentário de substituição do `<DOMAIN>`
+- **I-82:** `healthcheck` no `docker-compose.prod.yml` (urllib → `/health`, valida API + DB)
+- **I-83:** comentário documentando que TLS é terminado no Cloudflare/Nginx Proxy Manager
+- **I-85:** `cache: "pip"` no `actions/setup-python` do CI
+
+**ARQUIVOS ALTERADOS:**
+- `deploy/nginx.conf.example` (renomeado de nginx.conf)
+- `docker-compose.prod.yml`, `.github/workflows/ci.yml`, `README.md`
+
+**TESTES:**
+```
+248 passed in 20.70s
+```
+- `pytest` OK · `typecheck` OK · `lint` OK · YAML validados
+
+**ADIADOS (decisão — próxima etapa):**
+- I-84: pinar hadolint-action a commit SHA
+- I-86: imagem base alpine vs slim
+
+**PRÓXIMA TAREFA:**
+Nenhuma — sequência concluída. Pendências: docs/ + LICENSE (registrada), automação externa (opcional), I-84/I-86 (decisão).
+
+---
+
+## TASK-020 — CI/hardening (multi-stage build, hadolint, docker compose config)
+
+**Status:** DONE
+
+**Data:** 2026-08-12
+
+**IMPLEMENTADO:**
+- `Dockerfile` — multi-stage build (estágio builder com venv → runtime não-root `appuser`)
+- `.github/workflows/ci.yml` — jobs: `test` (pytest + compileall) e `docker` (hadolint + `docker compose config`)
+- `.dockerignore` — exclui `.github`, `deploy`, `docker-compose*.yml` (arquivos host-side)
+
+**ARQUIVOS ALTERADOS:**
+- `Dockerfile`, `.dockerignore`
+- `.github/workflows/ci.yml` (criado)
+
+**TESTES:**
+```
+248 passed in 21.31s
+```
+- `pytest` OK · `typecheck` OK · `lint` OK
+- YAML do `ci.yml` e compose files validados
+
+**SECURITY AUDIT:**
+- Container não-root mantido no multi-stage (I-38/L-38)
+- CI valida Dockerfile (hadolint) e compose files (I-66/I-67)
+- Sem secrets no workflow
+
+**PRÓXIMA TAREFA:**
+Nenhuma — sequência concluída. Pendências: docs/ + LICENSE (registrada), automação externa (opcional).
+
+---
+
+## TASK-019 — Infraestrutura real (deploy VPS/Cloudflare/PostgreSQL central)
+
+**Status:** DONE
+
+**Data:** 2026-08-12
+
+**IMPLEMENTADO:**
+- `docker-compose.prod.yml` — produção sem `db` local (reusa PostgreSQL central via `DATABASE_URL`), `TRUST_PROXY_HEADERS=true`
+- `deploy/nginx.conf` — exemplo de reverse proxy (`X-Forwarded-For`)
+- `README.md` — seção "Deployment (Production)" (compose prod, reverse proxy, Cloudflare, bootstrap)
+
+**ARQUIVOS CRIADOS:**
+- `docker-compose.prod.yml`, `deploy/nginx.conf`
+
+**ARQUIVOS ALTERADOS:**
+- `README.md`
+
+**DOCUMENTOS CONSULTADOS:**
+- `plano/02-arquitetura-infraestrutura.md` — VPS, Docker, Cloudflare, PostgreSQL central
+
+**TESTES:**
+```
+248 passed in 20.82s
+```
+- `pytest` OK · `typecheck` OK · `lint` OK · YAML compose prod validado
+
+**SECURITY AUDIT:**
+- `SECRET_KEY`/`DATABASE_URL` obrigatórios via env (sem fallback)
+- `TRUST_PROXY_HEADERS=true` atrás de reverse proxy
+- Sem credenciais hardcoded
+
+**PRÓXIMA TAREFA:**
+TASK-020 — CI/hardening
+
+---
+
 ## TASK-018 — Integração PP→QM→CO passo 6 (rework cost automático)
 
 **Status:** DONE

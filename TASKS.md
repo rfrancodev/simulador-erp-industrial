@@ -502,7 +502,34 @@ TASK-020 → CI/hardening (multi-stage build, hadolint, docker compose config)
 - `order.completed` verifica inspeções FAILED prévias e aplica rework ao criar cost record
 - 248 testes (era 246). 2 testes novos
 
-### Próxima: TASK-019 — Infraestrutura real (deploy VPS/Cloudflare/PostgreSQL central)
+### TASK-019 — Infraestrutura real (deploy VPS/Cloudflare/PostgreSQL central)
+**Status:** DONE
+- `docker-compose.prod.yml` — produção sem db local (reusa PostgreSQL central via `DATABASE_URL`)
+- `deploy/nginx.conf` — exemplo de reverse proxy
+- README — seção "Deployment (Production)" (Cloudflare, Nginx Proxy Manager, PostgreSQL central)
+- 248 testes (sem mudança de código Python)
+
+### TASK-020 — CI/hardening
+**Status:** DONE
+- `Dockerfile` — multi-stage build (builder venv → runtime não-root)
+- `.github/workflows/ci.yml` — pytest + compileall + hadolint + docker compose config
+- `.dockerignore` — exclui `.github`, `deploy`, `docker-compose*.yml`
+- 248 testes (sem mudança de código Python)
+
+### TASK-019.1/TASK-020.1 — Correções Pós-Auditoria
+**Status:** DONE
+- L-43: `deploy/nginx.conf` → `nginx.conf.example` (template explícito)
+- I-82: healthcheck no `docker-compose.prod.yml`
+- I-83: comentário SSL (Cloudflare) no nginx
+- I-85: cache pip no CI
+- Adiados (decisão): I-84 (pinar hadolint SHA), I-86 (alpine vs slim)
+
+### Sequência Concluída
+
+Todas as tasks da sequência foram concluídas. Pendências registradas (não executar agora):
+- **Documentação `docs/` + LICENSE** (previsto em `plano/12`) — REGISTRADA
+- **Automação externa n8n/Power BI** (`plano/11`) — OPCIONAL
+- **I-84/I-86** — decisões de infra (pinar SHA, imagem base)
 
 ---
 
