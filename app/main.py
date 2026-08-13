@@ -13,6 +13,7 @@ from app.api.production import router as production_router
 from app.api.quality import router as quality_router
 from app.core.exceptions import (
     ComponentUnitMismatchError,
+    DatabaseIntegrityError,
     DomainError,
     DuplicateEntityError,
     EntityHasDependenciesError,
@@ -23,9 +24,11 @@ from app.core.exceptions import (
 from app.core.logging import setup_logging
 from app.database.connection import session_dependency
 from app.middleware.rate_limit import RateLimitMiddleware
+from app.security.tokens import validate_secret_key
 from app.services.integration import register_integration_handlers
 
 setup_logging()
+validate_secret_key()
 register_integration_handlers()
 
 app = FastAPI(
@@ -53,6 +56,11 @@ async def handle_not_found(request, exc: EntityNotFoundError):
 
 @app.exception_handler(DuplicateEntityError)
 async def handle_duplicate(request, exc: DuplicateEntityError):
+    return JSONResponse(status_code=409, content={"detail": str(exc)})
+
+
+@app.exception_handler(DatabaseIntegrityError)
+async def handle_database_integrity(request, exc: DatabaseIntegrityError):
     return JSONResponse(status_code=409, content={"detail": str(exc)})
 
 

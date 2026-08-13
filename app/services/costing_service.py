@@ -12,7 +12,11 @@ from logging import getLogger
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.core.exceptions import DuplicateEntityError, EntityNotFoundError
+from app.core.exceptions import (
+    DatabaseIntegrityError,
+    DuplicateEntityError,
+    EntityNotFoundError,
+)
 from app.domain.costing.cost import (
     CostRecordCreate,
     CostRecordUpdate,
@@ -45,7 +49,13 @@ class CostingService:
             return record
         except IntegrityError:
             self._session.rollback()
-            raise DuplicateEntityError("CostRecord", data.production_order_id) from None
+            duplicate = self.records.get_by_order(data.production_order_id) is not None
+            self._session.rollback()
+            if duplicate:
+                raise DuplicateEntityError(
+                    "CostRecord", data.production_order_id
+                ) from None
+            raise DatabaseIntegrityError("CostRecord") from None
 
     def list_cost_records(self, skip: int = 0, limit: int = 100) -> list[CostRecord]:
         return self.records.get_all(skip, limit)

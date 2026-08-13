@@ -83,6 +83,7 @@ docker compose -f docker-compose.prod.yml exec api \
 
 - [ ] `SECRET_KEY` ≥ 32 random bytes
 - [ ] Strong `DATABASE_URL` credentials (never commit `.env`)
-- [ ] `TRUST_PROXY_HEADERS=true` (already set in prod compose)
+- [ ] `TRUST_PROXY_HEADERS=true` with `TRUSTED_PROXY_IPS` matching the proxy
 - [ ] Rate limiting configured (`RATE_LIMIT_PER_MINUTE`)
 - [ ] Cloudflare proxy enabled (WAF/DDoS)
+- [ ] API port 8000 is bound only to localhost or an internal Docker network

@@ -137,6 +137,28 @@ class TestRecipesCrudApi:
         assert resp.status_code == 200
         assert resp.json()["version"] == "2.0"
 
+    def test_update_recipe_duplicate_code_returns_conflict(self, client: TestClient, _setup_materials):
+        client.post("/api/production/recipes", json=_RECIPE_PAYLOAD)
+        client.post("/api/production/recipes", json={**_RECIPE_PAYLOAD, "recipe_code": "REC-002"})
+        resp = client.put("/api/production/recipes/1", json={"recipe_code": "REC-002"})
+        assert resp.status_code == 409
+
+    def test_update_recipe_material_with_dependency_is_rejected(self, client: TestClient, _setup_materials):
+        client.post("/api/production/recipes", json=_RECIPE_PAYLOAD)
+        now = datetime.now(UTC)
+        order = client.post("/api/production/orders", json={
+            "order_number": "PO-REC-MATERIAL",
+            "material_id": 1,
+            "recipe_id": 1,
+            "planned_quantity": "1000",
+            "planned_start": now.isoformat(),
+            "planned_end": (now + timedelta(hours=8)).isoformat(),
+        })
+        assert order.status_code == 201
+        resp = client.put("/api/production/recipes/1", json={"material_id": 2})
+        assert resp.status_code == 409
+        assert client.get("/api/production/recipes/1").json()["material_id"] == 1
+
     def test_update_recipe_not_found(self, client: TestClient, _setup_materials):
         resp = client.put("/api/production/recipes/999", json={"version": "2.0"})
         assert resp.status_code == 404

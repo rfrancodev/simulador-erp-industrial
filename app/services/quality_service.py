@@ -14,7 +14,11 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.events import EVENT_INSPECTION_FAILED, event_bus
-from app.core.exceptions import DuplicateEntityError, EntityNotFoundError
+from app.core.exceptions import (
+    DatabaseIntegrityError,
+    DuplicateEntityError,
+    EntityNotFoundError,
+)
 from app.domain.entities import NonConformity, QualityInspection
 from app.domain.quality.inspection import (
     InspectionStatus,
@@ -52,7 +56,16 @@ class QualityService:
             return inspection
         except IntegrityError:
             self._session.rollback()
-            raise DuplicateEntityError("QualityInspection", data.inspection_lot) from None
+            duplicate = (
+                self.inspections.get_by_lot(data.inspection_lot) is not None
+                or self.inspections.get_by_batch(data.batch_id) is not None
+            )
+            self._session.rollback()
+            if duplicate:
+                raise DuplicateEntityError(
+                    "QualityInspection", data.inspection_lot
+                ) from None
+            raise DatabaseIntegrityError("QualityInspection") from None
 
     def list_inspections(self, skip: int = 0, limit: int = 100) -> list[QualityInspection]:
         return self.inspections.get_all(skip, limit)

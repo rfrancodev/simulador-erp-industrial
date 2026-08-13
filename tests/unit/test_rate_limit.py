@@ -62,13 +62,21 @@ class _FakeRequest:
 class TestClientKey:
     def test_uses_forwarded_for_when_trusted(self, monkeypatch):
         monkeypatch.setenv("TRUST_PROXY_HEADERS", "true")
+        monkeypatch.setenv("TRUSTED_PROXY_IPS", "127.0.0.1")
         req = _FakeRequest(headers={"x-forwarded-for": "1.2.3.4, 10.0.0.1"})
         assert _client_key(req) == "1.2.3.4"
 
     def test_uses_real_ip_when_trusted(self, monkeypatch):
         monkeypatch.setenv("TRUST_PROXY_HEADERS", "true")
+        monkeypatch.setenv("TRUSTED_PROXY_IPS", "127.0.0.1")
         req = _FakeRequest(headers={"x-real-ip": "5.6.7.8"})
         assert _client_key(req) == "5.6.7.8"
+
+    def test_ignores_proxy_headers_from_untrusted_client(self, monkeypatch):
+        monkeypatch.setenv("TRUST_PROXY_HEADERS", "true")
+        monkeypatch.setenv("TRUSTED_PROXY_IPS", "127.0.0.1")
+        req = _FakeRequest(host="9.9.9.9", headers={"x-forwarded-for": "1.2.3.4"})
+        assert _client_key(req) == "9.9.9.9"
 
     def test_ignores_proxy_headers_by_default(self, monkeypatch):
         monkeypatch.delenv("TRUST_PROXY_HEADERS", raising=False)

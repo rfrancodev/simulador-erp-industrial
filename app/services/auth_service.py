@@ -9,7 +9,7 @@ from fastapi import HTTPException, status
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.core.exceptions import DuplicateEntityError
+from app.core.exceptions import DatabaseIntegrityError, DuplicateEntityError
 from app.domain.auth import UserCreate
 from app.domain.entities import User
 from app.repositories.user_repository import UserRepository
@@ -21,8 +21,10 @@ logger = getLogger(__name__)
 # does not reveal whether a username exists (L-22).
 _DUMMY_PASSWORD_HASH = hash_password("dummy-password-for-constant-time-login")
 
+# Failed attempts apply a cooldown to incorrect-password attempts only. A valid
+# password is always accepted so an attacker cannot lock out the account owner.
 _MAX_FAILED_ATTEMPTS = 5
-_LOCKOUT_MINUTES = 15
+_COOLDOWN_MINUTES = 15
 
 
 class AuthService:
@@ -43,7 +45,11 @@ class AuthService:
             return created
         except IntegrityError:
             self._session.rollback()
-            raise DuplicateEntityError("User", data.username) from None
+            duplicate = self.users.get_by_username(data.username) is not None
+            self._session.rollback()
+            if duplicate:
+                raise DuplicateEntityError("User", data.username) from None
+            raise DatabaseIntegrityError("User") from None
 
     def authenticate(self, username: str, password: str) -> User:
         user = self.users.get_by_username(username)
@@ -57,15 +63,9 @@ class AuthService:
                 headers={"WWW-Authenticate": "Bearer"},
             )
 
-        if self._is_locked(user):
-            raise HTTPException(
-                status_code=status.HTTP_423_LOCKED,
-                detail="Account temporarily locked. Please try again later.",
-                headers={"WWW-Authenticate": "Bearer"},
-            )
-
         if not password_ok:
-            self._register_failed_attempt(user)
+            if not self._in_failed_login_cooldown(user):
+                self._register_failed_attempt(user)
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Incorrect username or password",
@@ -75,7 +75,7 @@ class AuthService:
         self._reset_failed_attempts(user)
         return user
 
-    def _is_locked(self, user: User) -> bool:
+    def _in_failed_login_cooldown(self, user: User) -> bool:
         if user.locked_until is None:
             return False
         locked = user.locked_until
@@ -87,12 +87,12 @@ class AuthService:
     def _register_failed_attempt(self, user: User) -> None:
         user.failed_attempts = (user.failed_attempts or 0) + 1
         if user.failed_attempts >= _MAX_FAILED_ATTEMPTS:
-            user.locked_until = datetime.now(UTC) + timedelta(minutes=_LOCKOUT_MINUTES)
+            user.locked_until = datetime.now(UTC) + timedelta(minutes=_COOLDOWN_MINUTES)
             user.failed_attempts = 0
             logger.warning(
-                "User %s locked for %s minutes after %s failed attempts",
+                "User %s entered failed-login cooldown for %s minutes after %s failed attempts",
                 user.username,
-                _LOCKOUT_MINUTES,
+                _COOLDOWN_MINUTES,
                 _MAX_FAILED_ATTEMPTS,
             )
         self._session.commit()

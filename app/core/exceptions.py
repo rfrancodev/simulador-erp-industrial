@@ -19,6 +19,14 @@ class DuplicateEntityError(DomainError):
         super().__init__(f"{entity} with identifier {identifier!r} already exists")
 
 
+class DatabaseIntegrityError(DomainError):
+    def __init__(self, entity: str) -> None:
+        self.entity = entity
+        super().__init__(
+            f"{entity} could not be saved because it violates a database constraint"
+        )
+
+
 class RecipeMaterialMismatchError(DomainError):
     def __init__(self, recipe_id: int, recipe_material_id: int, order_material_id: int) -> None:
         self.recipe_id = recipe_id

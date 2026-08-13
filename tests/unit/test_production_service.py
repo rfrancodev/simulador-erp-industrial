@@ -4,8 +4,10 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 import pytest
+from sqlalchemy.exc import IntegrityError
 
 from app.core.exceptions import (
+    DatabaseIntegrityError,
     DuplicateEntityError,
     EntityNotFoundError,
     RecipeMaterialMismatchError,
@@ -82,3 +84,22 @@ class TestCreateProductionOrder:
         # Session must remain usable after rollback (no stale transaction).
         count = service.orders.count()
         assert count == 1
+
+
+def test_non_duplicate_integrity_error_is_not_reported_as_duplicate(session):
+    service = ProductionService(session)
+
+    def raise_fk_error(data):
+        raise IntegrityError("foreign key", {}, Exception("foreign key failed"))
+
+    service.materials.create = raise_fk_error
+    with pytest.raises(DatabaseIntegrityError):
+        service.create_material(
+            MaterialCreate(
+                material_code="MAT-INTEGRITY",
+                material_name="Material",
+                material_type=MaterialType.RAW_MATERIAL,
+                base_unit="KG",
+                plant="P001",
+            )
+        )

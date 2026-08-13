@@ -3748,3 +3748,125 @@ Automação externa n8n/Power BI (`plano/11`): **fora do escopo deste projeto** 
 - Healthcheck valida API + DB (`/health` faz `SELECT 1`)
 - Template nginx explícito (não é config de produção pronta)
 - Cache pip não afeta segurança
+
+---
+
+## Auditoria de Segurança — Service Layer, Auth e Configuração
+
+**Data:** 2026-08-13
+**Escopo:** `app/services/production_service.py`, `app/services/auth_service.py`, `app/api/*`, `app/security/*`, `app/middleware/rate_limit.py`, `app/database/connection.py`, `app/main.py`, `Dockerfile`, compose e `.env.example`
+**Método:** Revisão manual do código-fonte (sem alteração de arquivos)
+
+**Achados totais:** 0 CRITICAL, 1 HIGH, 3 MEDIUM, 2 LOW.
+
+### HIGH
+
+#### H-04 — Fallback hardcoded do segredo JWT
+
+**Arquivo:** `app/security/tokens.py:21`
+**Problema:** `os.getenv("SECRET_KEY", "change-me-in-production")`. Se a variável de ambiente não estiver definida, a aplicação assina e valida JWTs com uma chave conhecida publicamente.
+**Impacto:** Qualquer atacante pode forjar tokens válidos para qualquer usuário, incluindo papel `admin` — bypass completo de autenticação e autorização.
+**Correção:** Fail-fast na inicialização: levantar erro se `SECRET_KEY` ausente ou menor que 32 bytes em produção, em vez de apenas logar um aviso.
+
+### MEDIUM
+
+#### M-24 — Dashboards HTML sem autenticação
+
+**Arquivo:** `app/api/dashboard.py:12,28-97`
+**Problema:** O `router` com prefixo `/dashboard` não possui `Depends(require_api_access)` (ao contrário do `api_router` em `/api/dashboard`). As páginas HTML renderizam no servidor KPIs executivos, distribuição de ordens/inspeções, variância de custos e estatísticas de produção/qualidade/custos — os mesmos dados protegidos nos endpoints JSON.
+**Impacto:** Exposição de informação operacional para usuários não autenticados.
+**Correção:** Adicionar `require_api_access` ao `router` HTML, ou decidir explicitamente se o dashboard é público (e documentar).
+
+#### M-25 — `update_recipe` permite reatribuir `material_id` sem validação de consistência
+
+**Arquivo:** `app/services/production_service.py:418-421`
+**Problema:** A atualização valida apenas existência/atividade do novo material. Uma receita já referenciada por `ProductionOrder` pode passar a apontar para outro material, quebrando silenciosamente o invariante `recipe.material_id == order.material_id` imposto em `create_production_order` (`production_service.py:148-153`).
+**Impacto:** Ordens existentes passam a fabricar conceitualmente um material diferente da receita; inconsistência de dados PP-PI.
+**Correção:** Bloquear mudança de `material_id` quando existirem ordens referenciando a receita, ou revalidar/corrigir as ordens dependentes.
+
+#### M-26 — Bypass de rate limit via headers de proxy falsificáveis
+
+**Arquivo:** `app/middleware/rate_limit.py:69-81`
+**Problema:** Com `TRUST_PROXY_HEADERS=true`, a chave do limitador é derivada diretamente de `X-Forwarded-For`/`X-Real-IP` sem validação de proxy confiável.
+**Impacto:** Se habilitado sem um proxy reverso que sanitize os headers, o atacante alterna o IP de origem a cada requisição e anula o rate limit (inclusive o throttling do login). O lockout de conta (5 falhas/15 min, `auth_service.py:24-25`) permanece como segunda linha de defesa.
+**Correção:** Documentar explicitamente o requisito de proxy sanitizador e/ou suportar lista de IPs de proxy confiáveis.
+
+### LOW
+
+#### L-44 — `IntegrityError` bruto em `update_recipe` (duplicata de `recipe_code`)
+
+**Arquivo:** `app/services/production_service.py:423-456`
+**Problema:** Diferente das criações, a atualização não traduz `IntegrityError` em `DuplicateEntityError`; o erro propaga como 500. O 500 genérico do Starlette não vaza detalhes, mas a semântica é inconsistente (deveria ser 409).
+**Correção:** Capturar `IntegrityError` e traduzir para `DuplicateEntityError`.
+
+#### L-45 — Tradução ampla de `IntegrityError` → `DuplicateEntityError` nas criações
+
+**Arquivos:** `app/services/production_service.py:99,169,232,332,405`, `app/services/auth_service.py:44`
+**Problema:** Qualquer `IntegrityError` (inclusive violação de FK) é reportado como entidade duplicada (409).
+**Impacto:** Mascaramento de erros de integridade reais; baixo, pois os caminhos validam FKs antes de persistir.
+**Correção:** Inspecionar a constraint violada antes de traduzir o erro.
+
+### Verificado como Seguro
+
+- **Sem SQL injection:** ORM em todo o código; usos de `text()` são strings estáticas (defaults de schema e `SELECT 1` em `app/main.py:87`).
+- **Hash de senhas:** PBKDF2-HMAC-SHA256 com 600.000 iterações, salt aleatório de 16 bytes, comparação em tempo constante e mínimo de iterações imposto na verificação (`app/security/passwords.py`).
+- **Login:** tempo constante com hash dummy para usuários inexistentes, mensagens 401 genéricas, lockout de 15 min após 5 falhas (`app/services/auth_service.py:22,48-76`).
+- **RBAC:** resolução do usuário a cada requisição (revogação via `is_active` funciona), métodos desconhecidos exigem ADMIN, `/register` restrito a admin, papel padrão `viewer` (`app/security/dependencies.py`).
+- **Entradas:** paginação limitada a 500 (`Query(..., le=500)`), constraints Pydantic em todos os schemas.
+- **Segredos:** nenhum segredo commitado (apenas `.env.example`); credenciais do banco removidas do log (`app/database/connection.py:51`); compose injeta segredos via env.
+- **Docker:** build multi-stage, usuário não-root (`Dockerfile:23,30`).
+- **Sem CORS configurado:** padrão nega todas as origens (adequado para API pura).
+
+### Recomendações Prioritárias
+
+1. Tornar `SECRET_KEY` obrigatória na inicialização (H-04) — bloqueante para produção.
+2. Proteger as rotas HTML do dashboard (M-24).
+3. Bloquear/revalidar mudança de `material_id` em receitas com ordens dependentes (M-25).
+
+---
+
+## Correções Pós-Auditoria de Segurança — Revalidação Final
+
+**Data:** 2026-08-13
+**Status:** Correções aplicadas e revalidadas no código-fonte
+**Escopo:** H-04, M-24, M-25, M-26, L-44, L-45 e M-27 identificado na auditoria independente
+
+### Correções Aplicadas
+
+| Item | Status | Implementação |
+|------|--------|---------------|
+| H-04 — segredo JWT padrão | ✅ Corrigido | `app/security/tokens.py` removeu o fallback conhecido; `app/main.py` falha na inicialização se `SECRET_KEY` estiver ausente, vazia ou tiver menos de 32 bytes. |
+| M-24 — dashboard sem autenticação | ✅ Corrigido | `app/api/dashboard.py` aplica `Depends(require_api_access)` ao router HTML. |
+| M-25 — reatribuição de receita | ✅ Corrigido | `ProductionService.update_recipe()` rejeita mudança de `material_id` quando há ordens dependentes e usa lock da receita em bancos que suportam `FOR UPDATE`. |
+| M-26 — spoofing de proxy | ✅ Corrigido | Rate limiter valida IP do peer, aceita headers apenas de `TRUSTED_PROXY_IPS`, valida os valores recebidos e o Nginx sobrescreve `X-Forwarded-For`. |
+| M-26 — exposição direta da API | ✅ Mitigado | `docker-compose.prod.yml` publica a porta 8000 somente em `127.0.0.1`; o proxy/Tunnel deve ser o único ponto público. |
+| L-44 — duplicidade em atualização | ✅ Corrigido | `update_recipe()` traduz duplicidade de `recipe_code` para `409 DuplicateEntityError`. |
+| L-45 — `IntegrityError` amplo | ✅ Corrigido | Criações e atualizações distinguem duplicidade de outras violações e retornam `DatabaseIntegrityError` genérico, sem detalhes do banco. |
+| M-27 — lockout acionável | ✅ Mitigado | Tentativas inválidas entram em cooldown, mas uma senha correta continua sendo aceita; o atacante não consegue bloquear o proprietário da conta. |
+
+### Configuração Atualizada
+
+- `.env.example` inclui `TRUSTED_PROXY_IPS` e não fornece mais um segredo JWT utilizável.
+- `README.md` e `docs/RUNBOOK.md` documentam a allowlist de proxies e a restrição da porta 8000.
+- `deploy/nginx.conf.example` não preserva valores de `X-Forwarded-For` enviados pelo cliente.
+
+### Validação Final
+
+- `PYTHONPATH=. .venv/bin/python -m pytest -q` → **255 passed**.
+- `PYTHONPATH=. .venv/bin/python -m compileall -q app tests` → **aprovado**.
+- `git diff --check` → **aprovado**.
+- Importação sem `SECRET_KEY` → falha com `RuntimeError`, conforme esperado.
+- Importação com chave de 32 bytes → inicialização aprovada.
+- Arquivos YAML dos compose → sintaxe válida.
+
+### Observações Residuais
+
+- Docker Engine `20.10.24` e `docker-compose` `1.29.2` foram instalados no ambiente de auditoria.
+- `POSTGRES_USER=erp POSTGRES_PASSWORD=erp POSTGRES_DB=industrial_erp SECRET_KEY=<teste> docker-compose -f docker-compose.yml config --quiet` → **aprovado**.
+- `DATABASE_URL=postgresql://user:pass@db:5432/industrial_erp SECRET_KEY=<teste> docker-compose -f docker-compose.prod.yml config --quiet` → **aprovado**.
+- A configuração efetiva de produção confirmou `127.0.0.1:8000:8000`, `TRUST_PROXY_HEADERS=true` e `TRUSTED_PROXY_IPS=127.0.0.1,::1`.
+- O subcomando moderno `docker compose` não está disponível; a validação foi executada pelo comando equivalente `docker-compose config`.
+- As páginas HTML do dashboard agora exigem Bearer token; o frontend ainda precisa enviar o token no fluxo de login para permitir navegação autenticada.
+- A allowlist `TRUSTED_PROXY_IPS` deve corresponder ao endereço real do proxy no ambiente de produção; configuração incorreta pode fazer todos os clientes compartilharem o bucket do proxy, mas não permite spoofing.
+
+**Conclusão:** Os achados críticos e médios foram corrigidos ou mitigados no código e na configuração versionada. A implantação deve validar a topologia real do proxy, TLS externo e `TRUSTED_PROXY_IPS` antes da exposição pública.

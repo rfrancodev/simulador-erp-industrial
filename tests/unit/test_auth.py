@@ -198,13 +198,13 @@ class TestAuthorization:
 
 
 class TestAccountLockout:
-    def test_lockout_after_failed_attempts(self, client, session):
+    def test_failed_attempts_do_not_lock_out_correct_password(self, client, session):
         _create_user(session)
         for _ in range(5):
             resp = client.post("/api/auth/login", data={"username": "admin", "password": "wrong"})
             assert resp.status_code == 401
         resp = client.post("/api/auth/login", data={"username": "admin", "password": "secret123"})
-        assert resp.status_code == 423
+        assert resp.status_code == 200
 
     def test_successful_login_resets_counter(self, client, session):
         _create_user(session)
@@ -215,6 +215,20 @@ class TestAccountLockout:
 
 
 class TestTokenLifecycle:
+    def test_missing_secret_is_rejected(self, monkeypatch):
+        from app.security import tokens as tokens_mod
+
+        monkeypatch.delenv("SECRET_KEY", raising=False)
+        with pytest.raises(RuntimeError, match="SECRET_KEY must be set"):
+            tokens_mod.validate_secret_key()
+
+    def test_short_secret_is_rejected(self, monkeypatch):
+        from app.security import tokens as tokens_mod
+
+        monkeypatch.setenv("SECRET_KEY", "too-short")
+        with pytest.raises(RuntimeError, match="at least 32 bytes"):
+            tokens_mod.validate_secret_key()
+
     def test_expired_token_returns_401(self, client, session, monkeypatch):
         _create_user(session)
         from app.security import tokens as tokens_mod

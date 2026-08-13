@@ -303,6 +303,10 @@ class TestAnalyticsService:
 
 
 class TestDashboardAPI:
+    @pytest.mark.no_auth
+    def test_home_page_requires_authentication(self, client: TestClient):
+        assert client.get("/dashboard/").status_code == 401
+
     def test_home_page_renders(self, client: TestClient):
         resp = client.get("/dashboard/")
         assert resp.status_code == 200

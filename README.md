@@ -49,7 +49,8 @@ Configure via `.env` (see `.env.example`):
 | `POSTGRES_USER` / `POSTGRES_PASSWORD` / `POSTGRES_DB` | Local `db` service credentials (Docker Compose) |
 | `ACCESS_TOKEN_EXPIRE_MINUTES` | JWT expiry (default 30) |
 | `RATE_LIMIT_PER_MINUTE` | Per-IP request limit (default 60) |
-| `TRUST_PROXY_HEADERS` | Read `X-Forwarded-For`/`X-Real-IP` behind a reverse proxy |
+| `TRUST_PROXY_HEADERS` | Read forwarded IP headers only from trusted proxies |
+| `TRUSTED_PROXY_IPS` | Comma-separated trusted proxy IPs/CIDRs |
 | `SIM_FAILURE_RATE`, `SIM_YIELD_MEAN`, `SIM_INSPECTION_FAILURE_RATE`, `SIM_DOWNTIME_PROBABILITY` | Simulation defaults |
 
 ## Quick Start (Docker)
@@ -72,7 +73,8 @@ docker compose exec api python -m scripts.generate_data --months 12 --scenario n
 > the local `db` service — override `DATABASE_URL` to point at the shared
 > instance (see `plano/02-arquitetura-infraestrutura.md`). For production, set a
 > strong `SECRET_KEY`, enable rate limiting (`RATE_LIMIT_PER_MINUTE`) and, if
-> behind a reverse proxy, `TRUST_PROXY_HEADERS=true`.
+> behind a reverse proxy, `TRUST_PROXY_HEADERS=true` with a matching
+> `TRUSTED_PROXY_IPS` allowlist.
 
 ## Local Development (no Docker)
 
@@ -110,7 +112,8 @@ Target: Oracle Cloud VPS + Docker + Cloudflare (see `plano/02-arquitetura-infrae
    ```
 
 3. **Reverse proxy** — use Nginx Proxy Manager (or `deploy/nginx.conf.example`) pointing to
-   `api:8000`, with `X-Forwarded-For` headers.
+    `api:8000`, with sanitized `X-Forwarded-For` headers and a matching
+    `TRUSTED_PROXY_IPS` configuration.
 4. **Cloudflare** — DNS + SSL (proxy) for the public domain (suggested
    `erp.francorafael.com`), optionally via Cloudflare Tunnel to the VPS.
 

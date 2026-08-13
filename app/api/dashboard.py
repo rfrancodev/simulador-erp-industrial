@@ -9,7 +9,11 @@ from app.analytics.service import AnalyticsService
 from app.database.connection import session_dependency
 from app.security.dependencies import require_api_access
 
-router = APIRouter(prefix="/dashboard", tags=["Dashboard"])
+router = APIRouter(
+    prefix="/dashboard",
+    tags=["Dashboard"],
+    dependencies=[Depends(require_api_access)],
+)
 api_router = APIRouter(
     prefix="/api/dashboard",
     tags=["Dashboard API"],

@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session
 from app.core.events import EVENT_BATCH_CREATED, EVENT_ORDER_COMPLETED, event_bus
 from app.core.exceptions import (
     ComponentUnitMismatchError,
+    DatabaseIntegrityError,
     DuplicateEntityError,
     EntityHasDependenciesError,
     EntityNotFoundError,
@@ -98,7 +99,11 @@ class ProductionService:
             return material
         except IntegrityError:
             self._session.rollback()
-            raise DuplicateEntityError("Material", data.material_code) from None
+            duplicate = self.materials.get_by_code(data.material_code) is not None
+            self._session.rollback()
+            if duplicate:
+                raise DuplicateEntityError("Material", data.material_code) from None
+            raise DatabaseIntegrityError("Material") from None
 
     def update_material(self, id: int, data: MaterialUpdate) -> Material:
         material = self.materials.update(id, data)
@@ -142,7 +147,12 @@ class ProductionService:
         if material is None or not material.is_active:
             raise EntityNotFoundError("Material", data.material_id)
 
-        recipe = self.recipes.get_by_id(data.recipe_id)
+        recipe_stmt = (
+            select(ProductionRecipe)
+            .where(ProductionRecipe.id == data.recipe_id)
+            .with_for_update()
+        )
+        recipe = self._session.execute(recipe_stmt).scalar_one_or_none()
         if recipe is None:
             raise EntityNotFoundError("ProductionRecipe", data.recipe_id)
         if recipe.material_id != data.material_id:
@@ -168,7 +178,11 @@ class ProductionService:
             return created
         except IntegrityError:
             self._session.rollback()
-            raise DuplicateEntityError("ProductionOrder", data.order_number) from None
+            duplicate = self.orders.get_by_number(data.order_number) is not None
+            self._session.rollback()
+            if duplicate:
+                raise DuplicateEntityError("ProductionOrder", data.order_number) from None
+            raise DatabaseIntegrityError("ProductionOrder") from None
 
     def update_order_status(self, id: int, status: ProductionOrderStatus) -> ProductionOrder:
         order = self.orders.get_by_id(id)
@@ -231,7 +245,11 @@ class ProductionService:
             return created
         except IntegrityError:
             self._session.rollback()
-            raise DuplicateEntityError("Batch", data.batch_number) from None
+            duplicate = self.batches.get_by_number(data.batch_number) is not None
+            self._session.rollback()
+            if duplicate:
+                raise DuplicateEntityError("Batch", data.batch_number) from None
+            raise DatabaseIntegrityError("Batch") from None
         except Exception:
             self._session.rollback()
             raise
@@ -331,7 +349,11 @@ class ProductionService:
             return created
         except IntegrityError:
             self._session.rollback()
-            raise DuplicateEntityError("ProductionResource", data.resource_code) from None
+            duplicate = self.resources.get_by_code(data.resource_code) is not None
+            self._session.rollback()
+            if duplicate:
+                raise DuplicateEntityError("ProductionResource", data.resource_code) from None
+            raise DatabaseIntegrityError("ProductionResource") from None
 
     # ── Production Recipes ─────────────────────────────────────────────
 
@@ -404,22 +426,45 @@ class ProductionService:
             return created
         except IntegrityError:
             self._session.rollback()
-            raise DuplicateEntityError("ProductionRecipe", data.recipe_code) from None
+            duplicate = self.recipes.get_by_code(data.recipe_code) is not None
+            self._session.rollback()
+            if duplicate:
+                raise DuplicateEntityError("ProductionRecipe", data.recipe_code) from None
+            raise DatabaseIntegrityError("ProductionRecipe") from None
 
     def update_recipe(
         self, id: int, data: ProductionRecipeUpdate
     ) -> ProductionRecipe:
-        recipe = self.recipes.get_by_id(id)
+        recipe_stmt = (
+            select(ProductionRecipe)
+            .where(ProductionRecipe.id == id)
+            .with_for_update()
+        )
+        recipe = self._session.execute(recipe_stmt).scalar_one_or_none()
         if recipe is None:
             raise EntityNotFoundError("ProductionRecipe", id)
 
         update_data = data.model_dump(exclude_unset=True, mode="python")
 
         if "material_id" in update_data and update_data["material_id"] is not None:
-            material = self.materials.get_by_id(update_data["material_id"])
+            new_material_id = update_data["material_id"]
+            material = self.materials.get_by_id(new_material_id)
             if material is None or not material.is_active:
-                raise EntityNotFoundError("Material", update_data["material_id"])
+                raise EntityNotFoundError("Material", new_material_id)
 
+            if new_material_id != recipe.material_id:
+                stmt = (
+                    select(ProductionOrder.id)
+                    .where(ProductionOrder.recipe_id == id)
+                    .limit(1)
+                )
+                if self._session.execute(stmt).scalar_one_or_none() is not None:
+                    self._session.rollback()
+                    raise EntityHasDependenciesError(
+                        "ProductionRecipe", recipe.recipe_code, ["production_orders"]
+                    )
+
+        candidate_recipe_code = update_data.get("recipe_code", recipe.recipe_code)
         try:
             if data.components is not None:
                 recipe.components = []
@@ -451,6 +496,15 @@ class ProductionService:
                 setattr(recipe, key, value)
 
             self._session.commit()
+        except IntegrityError:
+            self._session.rollback()
+            existing = self.recipes.get_by_code(candidate_recipe_code)
+            self._session.rollback()
+            if existing is not None and existing.id != id:
+                raise DuplicateEntityError(
+                    "ProductionRecipe", candidate_recipe_code
+                ) from None
+            raise DatabaseIntegrityError("ProductionRecipe") from None
         except Exception:
             self._session.rollback()
             raise

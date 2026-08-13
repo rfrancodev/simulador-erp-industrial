@@ -2,30 +2,29 @@
 
 from __future__ import annotations
 
-import logging
 import os
 from datetime import UTC, datetime, timedelta
 
 import jwt
 
-logger = logging.getLogger(__name__)
-
 _ALGORITHM = "HS256"
 _SECRET_MIN_BYTES = 32
 
-_warned_weak_secret = False
-
 
 def _secret() -> str:
-    global _warned_weak_secret
-    secret = os.getenv("SECRET_KEY", "change-me-in-production")
-    if len(secret.encode("utf-8")) < _SECRET_MIN_BYTES and not _warned_weak_secret:
-        _warned_weak_secret = True
-        logger.warning(
-            "SECRET_KEY is shorter than %s bytes; set a stronger key in production",
-            _SECRET_MIN_BYTES,
+    secret = os.getenv("SECRET_KEY")
+    if not secret:
+        raise RuntimeError("SECRET_KEY must be set")
+    if len(secret.encode("utf-8")) < _SECRET_MIN_BYTES:
+        raise RuntimeError(
+            f"SECRET_KEY must contain at least {_SECRET_MIN_BYTES} bytes"
         )
     return secret
+
+
+def validate_secret_key() -> None:
+    """Fail fast when the application is configured with an unsafe JWT key."""
+    _secret()
 
 
 def token_expiry_minutes() -> int:

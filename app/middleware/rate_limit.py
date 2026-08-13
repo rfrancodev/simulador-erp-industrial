@@ -4,10 +4,10 @@ A single-instance sliding-window limiter keyed by client IP address. Limits are
 configurable via ``RATE_LIMIT_PER_MINUTE``. Requests to ``/api/*`` exceeding the
 window receive ``429 Too Many Requests``.
 
-Behind a reverse proxy set ``TRUST_PROXY_HEADERS=true`` so the client key is
-derived from ``X-Forwarded-For`` / ``X-Real-IP`` instead of the proxy address
-(M-20). Stale per-IP entries are pruned periodically so the key map does not
-grow unbounded (M-21).
+Behind a reverse proxy set ``TRUST_PROXY_HEADERS=true`` and configure
+``TRUSTED_PROXY_IPS``. Forwarded headers are ignored unless the immediate peer
+is allowlisted. Stale per-IP entries are pruned periodically so the key map does
+not grow unbounded (M-21).
 """
 
 from __future__ import annotations
@@ -16,6 +16,7 @@ import os
 import threading
 import time
 from collections import defaultdict, deque
+from ipaddress import ip_address, ip_network
 
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
@@ -70,14 +71,54 @@ def _trust_proxy_headers() -> bool:
     return os.getenv("TRUST_PROXY_HEADERS", "false").lower() in ("1", "true", "yes")
 
 
+def _trusted_proxy_networks() -> tuple:
+    networks = []
+    for value in os.getenv("TRUSTED_PROXY_IPS", "127.0.0.1,::1").split(","):
+        value = value.strip()
+        if not value:
+            continue
+        try:
+            if "/" in value:
+                networks.append(ip_network(value, strict=False))
+            else:
+                address = ip_address(value)
+                prefix = 128 if address.version == 6 else 32
+                networks.append(ip_network(f"{value}/{prefix}", strict=False))
+        except ValueError:
+            continue
+    return tuple(networks)
+
+
+def _is_trusted_proxy(request: Request) -> bool:
+    if request.client is None:
+        return False
+    try:
+        client_ip = ip_address(request.client.host)
+    except ValueError:
+        return False
+    return any(client_ip in network for network in _trusted_proxy_networks())
+
+
+def _valid_ip(value: str | None) -> str | None:
+    if not value:
+        return None
+    value = value.strip()
+    try:
+        ip_address(value)
+    except ValueError:
+        return None
+    return value
+
+
 def _client_key(request: Request) -> str:
-    if _trust_proxy_headers():
+    if _trust_proxy_headers() and _is_trusted_proxy(request):
         forwarded = request.headers.get("x-forwarded-for")
-        if forwarded:
-            return forwarded.split(",")[0].strip()
-        real_ip = request.headers.get("x-real-ip")
+        forwarded_ip = _valid_ip(forwarded.split(",")[0] if forwarded else None)
+        if forwarded_ip:
+            return forwarded_ip
+        real_ip = _valid_ip(request.headers.get("x-real-ip"))
         if real_ip:
-            return real_ip.strip()
+            return real_ip
     return request.client.host if request.client else "unknown"
 
 
