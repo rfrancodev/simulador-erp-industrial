@@ -558,6 +558,96 @@ TASK-020 → CI/hardening (multi-stage build, hadolint, docker compose config)
 
 **Riscos:** Topologia do proxy, regras de firewall, credenciais PostgreSQL, TLS e fluxo de autenticação do frontend ainda dependem do ambiente de deploy.
 
+### Guia de Deploy — Oracle + Cloudflare + PostgreSQL
+
+#### Passo 1 — PostgreSQL na VPS
+
+Reutilizar o PostgreSQL central da VPS Oracle (não criar novo container):
+
+```bash
+sudo -u postgres psql
+CREATE DATABASE industrial_erp;
+CREATE USER erp WITH ENCRYPTED PASSWORD '<senha-forte>';
+GRANT ALL PRIVILEGES ON DATABASE industrial_erp TO erp;
+```
+
+`DATABASE_URL=postgresql://erp:<senha>@127.0.0.1:5432/industrial_erp`
+
+#### Passo 2 — Segredos
+
+Gerar a chave e montar o `.env` no servidor (fora do Git):
+
+```bash
+openssl rand -hex 32   # SECRET_KEY (32 bytes)
+```
+
+Criar `.env` na raiz do projeto no servidor:
+
+```
+DATABASE_URL=postgresql://erp:<senha>@127.0.0.1:5432/industrial_erp
+SECRET_KEY=<valor-gerado>
+ACCESS_TOKEN_EXPIRE_MINUTES=30
+RATE_LIMIT_PER_MINUTE=60
+TRUST_PROXY_HEADERS=true
+TRUSTED_PROXY_IPS=127.0.0.1,::1
+```
+
+#### Passo 3 — Cloudflare (domínio `erp.francorafael.com`)
+
+Opção A — Proxy DNS (orange cloud):
+- Cloudflare → DNS → registro `erp` tipo `A` apontando para o IP público da VPS, com proxy laranja ativo.
+- SSL/TLS → modo `Full (strict)` (exige certificado válido na origem) ou `Full`.
+
+Opção B — Cloudflare Tunnel (sem portas públicas):
+- Instalar `cloudflared` na VPS e criar o tunnel:
+  ```bash
+  cloudflared tunnel create erp
+  cloudflared tunnel route dns erp erp.francorafael.com
+  cloudflared service install
+  ```
+- Configurar ingress apontando para `http://localhost:8000`.
+
+#### Passo 4 — Firewall (bloquear porta 8000)
+
+Na Oracle OCI:
+- Networking → Security Lists (ou NSG) → não liberar `8000` para `0.0.0.0/0`.
+- Liberar apenas `80`/`443` (ou nada, se usar Tunnel).
+
+Na VPS (ufw):
+
+```bash
+sudo ufw allow OpenSSH
+sudo ufw allow 80/tcp
+sudo ufw allow 443/tcp
+sudo ufw enable
+```
+
+O compose já publica `127.0.0.1:8000`, portanto a porta não fica acessível externamente mesmo sem regra.
+
+#### Passo 5 — Deploy
+
+```bash
+cd simulador-erp-industrial
+git pull
+docker compose -f docker-compose.prod.yml up --build -d
+docker compose -f docker-compose.prod.yml exec api python -m scripts.create_user --username admin --role admin
+docker compose -f docker-compose.prod.yml exec api python -m scripts.generate_data --months 12 --scenario normal
+```
+
+#### Passo 6 — Smoke test
+
+- `https://erp.francorafael.com/health` → 200
+- `https://erp.francorafael.com/dashboard/login` → página de login
+- Login, criação PP-PI → QM → CO e rollback.
+- Acesso anônimo às APIs → 401.
+
+#### Passo 7 — Backup e rollback
+
+```bash
+pg_dump industrial_erp > backup-$(date +%F).sql
+# rollback: git revert <commit> + docker compose up --build -d + restaurar dump
+```
+
 ### Sequência Concluída
 
 As tasks de implementação foram concluídas. A validação operacional de produção permanece pendente na `TASK-021`. Pendências resolvidas antes do deploy:
