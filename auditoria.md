@@ -3729,6 +3729,15 @@ oee = min(1.0, availability * performance * quality)
 | I-84 pinar hadolint-action a commit hash | Requer obter o SHA do release (tag `@v3.1.0` é aceitável) |
 | I-86 alpine vs slim | Trade-off compatibilidade (musl vs glibc) — decisão de imagem base |
 
+### Resolução pré-deploy (2026-08-13)
+
+| Item | Decisão |
+|------|---------|
+| I-84 | ✅ Resolvido — `hadolint/hadolint-action@54c9adbab1582c2ef04b2016b760714a4bfde3cf` (SHA de v3.1.0) |
+| I-86 | ✅ Decidido — mantida imagem base `slim` (glibc) por compatibilidade com C extensions (`psycopg2`, `numpy`, `pandas`, `uvloop`) |
+
+Automação externa n8n/Power BI (`plano/11`): **fora do escopo deste projeto** — atualização futura.
+
 ### Arquivos Alterados
 - `deploy/nginx.conf` → `deploy/nginx.conf.example` (renomeado + comentários)
 - `docker-compose.prod.yml` — healthcheck

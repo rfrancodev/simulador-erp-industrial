@@ -439,13 +439,14 @@ Evitar tarefas gigantes como "Implementar todo o módulo PP-PI."
 
 ### Pendências Registradas (não executar agora)
 
-**Automação externa** (`plano/11`) — **OPCIONAL, não executar**:
+**Automação externa** (`plano/11`) — **FORA DO ESCOPO deste projeto**:
 - Integração n8n (alerta de quality failure)
 - Integração Power BI
+- Decisão: será tratada como atualização futura, separada do projeto atual.
 
-**Decisões de infra (próxima etapa):**
-- I-84: pinar hadolint-action a commit SHA
-- I-86: imagem base alpine vs slim (trade-off compatibilidade)
+**Decisões de infra (resolvidas antes do deploy):**
+- I-84: ✅ pinar hadolint-action a commit SHA (`54c9adbab1582c2ef04b2016b760714a4bfde3cf`)
+- I-86: ✅ mantida imagem base `slim` (glibc) — compatibilidade com C extensions (`psycopg2`, `numpy`, `pandas`, `uvloop`)
 
 ### Sequência de Execução (atualizada)
 
@@ -522,7 +523,7 @@ TASK-020 → CI/hardening (multi-stage build, hadolint, docker compose config)
 - I-82: healthcheck no `docker-compose.prod.yml`
 - I-83: comentário SSL (Cloudflare) no nginx
 - I-85: cache pip no CI
-- Adiados (decisão): I-84 (pinar hadolint SHA), I-86 (alpine vs slim)
+- Resolvido antes do deploy: I-84 (hadolint pinado a SHA), I-86 (mantido `slim`/glibc)
 
 ### TASK-014 — Documentação `docs/` + LICENSE
 **Status:** DONE
@@ -533,9 +534,14 @@ TASK-020 → CI/hardening (multi-stage build, hadolint, docker compose config)
 
 ### Sequência Concluída
 
-Todas as tasks da sequência foram concluídas. Pendências restantes:
-- **Automação externa n8n/Power BI** (`plano/11`) — OPCIONAL
-- **I-84/I-86** — decisões de infra (pinar SHA, imagem base)
+Todas as tasks da sequência foram concluídas. Pendências resolvidas antes do deploy:
+- **I-84** — hadolint-action pinado a commit SHA
+- **I-86** — imagem base `slim` (glibc) mantida por compatibilidade
+
+Fora do escopo (atualização futura, separada do projeto):
+- **Automação externa n8n/Power BI** (`plano/11`)
+
+Próximo passo: revisão profunda de segurança antes do deploy (não iniciada).
 
 ---
 
