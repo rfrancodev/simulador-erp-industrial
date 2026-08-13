@@ -532,16 +532,42 @@ TASK-020 → CI/hardening (multi-stage build, hadolint, docker compose config)
 - RUNBOOK inclui setup do domínio `erp.francorafael.com` (Cloudflare DNS/SSL/Tunnel)
 - README atualizado com link para `docs/`
 
+### TASK-021 — Validação final para deploy em produção
+**Status:** IN PROGRESS
+
+**Objetivo:** Validar a infraestrutura real de staging/produção após as correções de segurança, sem expor a API diretamente à internet.
+
+**Checklist de execução:**
+- [x] Configurar `SECRET_KEY` forte via secret manager ou variável protegida, sem usar valor de exemplo. (validado em código: falha na inicialização se ausente/fraco)
+- [ ] Configurar `TRUSTED_PROXY_IPS` com o IP/CIDR real do proxy imediato. (depende do ambiente de deploy)
+- [ ] Confirmar TLS/HTTPS no Cloudflare ou proxy reverso. (depende do ambiente de deploy)
+- [ ] Confirmar que a porta `8000` não é acessível externamente e está limitada ao proxy/Tunnel. (configuração aplicada; validação externa pendente)
+- [x] Executar `alembic upgrade head` contra o banco. (smoke test com SQLite: migrações aplicadas)
+- [x] Criar o usuário admin inicial e validar login, expiração e revogação de token.
+- [x] Validar `/health`, APIs protegidas, dashboard autenticado e bloqueio de acesso anônimo.
+- [x] Integrar o envio do Bearer token no fluxo visual do dashboard (login/logout com cookie HttpOnly).
+- [ ] Executar smoke test PP-PI → QM → CO em PostgreSQL real. (validado em SQLite; aguardar PostgreSQL de staging)
+- [ ] Documentar backup, restauração e procedimento de rollback do deploy.
+
+**Critérios de aceite:**
+- [x] Deploy de staging validado localmente (smoke test) sem exposição direta da porta 8000.
+- [ ] HTTPS funcional no domínio público.
+- [ ] Proxy identifica clientes reais sem aceitar spoofing de headers.
+- [x] Login, RBAC, dashboard e integrações PP-PI/QM/CO validados manualmente.
+- [x] Evidências e comandos executados registrados em `auditoria.md`.
+
+**Riscos:** Topologia do proxy, regras de firewall, credenciais PostgreSQL, TLS e fluxo de autenticação do frontend ainda dependem do ambiente de deploy.
+
 ### Sequência Concluída
 
-Todas as tasks da sequência foram concluídas. Pendências resolvidas antes do deploy:
+As tasks de implementação foram concluídas. A validação operacional de produção permanece pendente na `TASK-021`. Pendências resolvidas antes do deploy:
 - **I-84** — hadolint-action pinado a commit SHA
 - **I-86** — imagem base `slim` (glibc) mantida por compatibilidade
 
 Fora do escopo (atualização futura, separada do projeto):
 - **Automação externa n8n/Power BI** (`plano/11`)
 
-Próximo passo: revisão profunda de segurança antes do deploy (não iniciada).
+Próximo passo: executar a `TASK-021` em ambiente de staging antes do deploy público.
 
 ---
 

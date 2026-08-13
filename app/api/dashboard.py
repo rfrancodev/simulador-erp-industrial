@@ -1,30 +1,86 @@
 """Dashboard router — serves HTML pages and analytics API endpoints."""
 
-from fastapi import APIRouter, Depends, Request
-from fastapi.responses import HTMLResponse
+from fastapi import APIRouter, Depends, Form, HTTPException, Request, status
+from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 
 from app.analytics.service import AnalyticsService
 from app.database.connection import session_dependency
-from app.security.dependencies import require_api_access
+from app.security.dependencies import require_dashboard_access
+from app.security.tokens import create_access_token, token_expiry_minutes
+from app.services.auth_service import AuthService
 
 router = APIRouter(
     prefix="/dashboard",
     tags=["Dashboard"],
-    dependencies=[Depends(require_api_access)],
+    dependencies=[Depends(require_dashboard_access)],
 )
+auth_router = APIRouter(prefix="/dashboard", tags=["Dashboard Auth"])
 api_router = APIRouter(
     prefix="/api/dashboard",
     tags=["Dashboard API"],
-    dependencies=[Depends(require_api_access)],
+    dependencies=[Depends(require_dashboard_access)],
 )
 
 templates = Jinja2Templates(directory="templates")
 
+_ACCESS_TOKEN_COOKIE = "access_token"
+
 
 def _analytics(session: Session = Depends(session_dependency)) -> AnalyticsService:
     return AnalyticsService(session)
+
+
+def _auth(session: Session = Depends(session_dependency)) -> AuthService:
+    return AuthService(session)
+
+
+# ── Authentication pages ─────────────────────────────────────────────────
+
+@auth_router.get("/login", response_class=HTMLResponse)
+async def dashboard_login_page(request: Request):
+    return templates.TemplateResponse(
+        request=request,
+        name="dashboard/login.html",
+        context={"error": None},
+    )
+
+
+@auth_router.post("/login")
+async def dashboard_login(
+    request: Request,
+    username: str = Form(...),
+    password: str = Form(...),
+    svc: AuthService = Depends(_auth),
+):
+    try:
+        user = svc.authenticate(username, password)
+    except HTTPException:
+        return templates.TemplateResponse(
+            request=request,
+            name="dashboard/login.html",
+            context={"error": "Usuário ou senha inválidos."},
+            status_code=status.HTTP_401_UNAUTHORIZED,
+        )
+
+    token = create_access_token(subject=user.username)
+    response = RedirectResponse(url="/dashboard/", status_code=status.HTTP_303_SEE_OTHER)
+    response.set_cookie(
+        _ACCESS_TOKEN_COOKIE,
+        token,
+        httponly=True,
+        samesite="lax",
+        max_age=token_expiry_minutes() * 60,
+    )
+    return response
+
+
+@auth_router.post("/logout")
+async def dashboard_logout():
+    response = RedirectResponse(url="/dashboard/login", status_code=status.HTTP_303_SEE_OTHER)
+    response.delete_cookie(_ACCESS_TOKEN_COOKIE)
+    return response
 
 
 # ── HTML Pages ───────────────────────────────────────────────────────────

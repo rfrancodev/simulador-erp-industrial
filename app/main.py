@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from app.api.auth import router as auth_router
 from app.api.costing import router as costing_router
 from app.api.dashboard import api_router as dashboard_api_router
+from app.api.dashboard import auth_router as dashboard_auth_router
 from app.api.dashboard import router as dashboard_router
 from app.api.production import router as production_router
 from app.api.quality import router as quality_router
@@ -43,6 +44,7 @@ app.include_router(auth_router)
 app.include_router(production_router)
 app.include_router(quality_router)
 app.include_router(costing_router)
+app.include_router(dashboard_auth_router)
 app.include_router(dashboard_router)
 app.include_router(dashboard_api_router)
 

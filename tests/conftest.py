@@ -44,7 +44,7 @@ def _admin_auth_override(request):
     from app.domain.entities import User
     from app.main import app
     from app.middleware.rate_limit import rate_limiter
-    from app.security.dependencies import get_current_user
+    from app.security.dependencies import get_current_user, require_dashboard_access
 
     rate_limiter.reset()
 
@@ -54,10 +54,12 @@ def _admin_auth_override(request):
 
     admin = User(id=1, username="test-admin", role=UserRole.ADMIN.value, is_active=True)
     app.dependency_overrides[get_current_user] = lambda: admin
+    app.dependency_overrides[require_dashboard_access] = lambda: admin
     try:
         yield
     finally:
         app.dependency_overrides.pop(get_current_user, None)
+        app.dependency_overrides.pop(require_dashboard_access, None)
 
 
 @pytest.fixture

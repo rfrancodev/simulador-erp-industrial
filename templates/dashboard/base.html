@@ -59,6 +59,9 @@
         <a href="/dashboard/costing" class="{{ 'active' if active_nav == 'cost' else '' }}">Cost</a>
         <a href="/dashboard/order-360" class="{{ 'active' if active_nav == 'order360' else '' }}">Order 360°</a>
         <a href="/docs">API Docs</a>
+        <form method="post" action="/dashboard/logout" style="margin-left: auto; margin: 0;">
+            <button type="submit" style="background: none; border: none; color: #a0aec0; font-size: 14px; font-weight: 500; cursor: pointer;">Sair</button>
+        </form>
     </nav>
     <div class="container">
         {% block content %}{% endblock %}

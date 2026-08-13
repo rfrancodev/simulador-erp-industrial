@@ -307,6 +307,37 @@ class TestDashboardAPI:
     def test_home_page_requires_authentication(self, client: TestClient):
         assert client.get("/dashboard/").status_code == 401
 
+    @pytest.mark.no_auth
+    def test_dashboard_login_sets_cookie_and_grants_access(self, client: TestClient, session: Session):
+        from app.domain.auth import UserCreate, UserRole
+        from app.services.auth_service import AuthService
+
+        AuthService(session).create_user(
+            UserCreate(username="dashadmin", password="secret123", role=UserRole.ADMIN)
+        )
+
+        login = client.post(
+            "/dashboard/login",
+            data={"username": "dashadmin", "password": "secret123"},
+            follow_redirects=False,
+        )
+        assert login.status_code == 303
+        assert "access_token" in login.cookies
+
+        token = login.cookies["access_token"]
+        home = client.get("/dashboard/", headers={"Cookie": f"access_token={token}"})
+        assert home.status_code == 200
+        assert "Dashboard Executivo" in home.text
+
+    @pytest.mark.no_auth
+    def test_dashboard_login_wrong_password_is_rejected(self, client: TestClient):
+        login = client.post(
+            "/dashboard/login",
+            data={"username": "nobody", "password": "wrong"},
+        )
+        assert login.status_code == 401
+        assert "access_token" not in login.cookies
+
     def test_home_page_renders(self, client: TestClient):
         resp = client.get("/dashboard/")
         assert resp.status_code == 200

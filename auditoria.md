@@ -3870,3 +3870,37 @@ Automação externa n8n/Power BI (`plano/11`): **fora do escopo deste projeto** 
 - A allowlist `TRUSTED_PROXY_IPS` deve corresponder ao endereço real do proxy no ambiente de produção; configuração incorreta pode fazer todos os clientes compartilharem o bucket do proxy, mas não permite spoofing.
 
 **Conclusão:** Os achados críticos e médios foram corrigidos ou mitigados no código e na configuração versionada. A implantação deve validar a topologia real do proxy, TLS externo e `TRUSTED_PROXY_IPS` antes da exposição pública.
+
+---
+
+## Execução TASK-021 — Validação final para deploy
+
+**Data:** 2026-08-13
+**Status:** Parcialmente executada — etapas de infraestrutura externa pendentes
+
+### Concluído
+
+- **Fluxo de login do dashboard** implementado (`app/api/dashboard.py` + `templates/dashboard/login.html`): login via formulário, cookie HttpOnly `access_token` (SameSite=Lax), logout e aceite do cookie apenas em GET/HEAD/OPTIONS via `require_dashboard_access`.
+- Dependência `require_dashboard_access` separada de `require_api_access`, mantendo escrita restrita a Bearer header (sem superfície de CSRF).
+- Fixture de teste atualizada para cobrir a nova dependência.
+- `alembic upgrade head` validado (migrações aplicadas em SQLite).
+- Smoke test de ponta a ponta (`/tmp/opencode/smoke_deploy.py`):
+  - `/health` → 200
+  - acesso anônimo às APIs → 401
+  - login JWT → 200; `/api/auth/me` → admin
+  - criação de material, receita e ordem de produção → 201
+  - login do dashboard → 303 com cookie; `/dashboard/` autenticado → 200
+  - `/api/dashboard/kpis` com cookie → 200
+  - logout → 303; navegação sem cookie → 401
+- Suíte completa: **257 testes passando**; `compileall` e `git diff --check` aprovados.
+
+### Pendente (depende de infraestrutura externa)
+
+- Configurar `TRUSTED_PROXY_IPS` com o IP/CIDR real do proxy.
+- Confirmar TLS/HTTPS e regras de firewall no Cloudflare/proxy/Tunnel.
+- Validar PostgreSQL de staging (smoke test foi executado em SQLite).
+- Documentar backup, restauração e procedimento de rollback do deploy.
+
+### Observações
+
+- O logout do dashboard remove o cookie, mas o JWT é stateless e permanece válido até expirar se reutilizado diretamente (limitação esperada do JWT; mitigada por expiração curta e revogação via `is_active`).

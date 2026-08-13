@@ -50,11 +50,17 @@ def _resolve_role(user: User) -> UserRole | None:
         return None
 
 
-def get_current_user(
-    token: str = Depends(oauth2_scheme),
-    session: Session = Depends(session_dependency),
-) -> User:
-    """Resolve the authenticated user from the JWT bearer token."""
+def _bearer_token(request: Request) -> str | None:
+    authorization = request.headers.get("Authorization")
+    if not authorization:
+        return None
+    scheme, _, param = authorization.partition(" ")
+    if scheme.lower() != "bearer" or not param:
+        return None
+    return param
+
+
+def _user_from_token(token: str, session: Session) -> User:
     try:
         payload = decode_token(token)
         username = payload.get("sub")
@@ -67,6 +73,14 @@ def get_current_user(
     if user is None or not user.is_active:
         raise _credentials_error()
     return user
+
+
+def get_current_user(
+    token: str = Depends(oauth2_scheme),
+    session: Session = Depends(session_dependency),
+) -> User:
+    """Resolve the authenticated user from the JWT bearer token."""
+    return _user_from_token(token, session)
 
 
 def require_roles(*roles: UserRole):
@@ -95,6 +109,35 @@ def require_api_access(
     required = _METHOD_MIN_ROLE.get(request.method, UserRole.ADMIN)
     role = _resolve_role(user)
     if role is None or _ROLE_LEVEL[role] < _ROLE_LEVEL[required]:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Insufficient permissions",
+        )
+    return user
+
+
+def require_dashboard_access(
+    request: Request,
+    session: Session = Depends(session_dependency),
+) -> User:
+    """Authenticate dashboard browser requests (read-only) via HttpOnly cookie.
+
+    The token is set on login and accepted only for GET/HEAD/OPTIONS requests, so
+    mutating API endpoints are not exposed to cross-site request forgery.
+    """
+    if request.method not in ("GET", "HEAD", "OPTIONS"):
+        raise HTTPException(
+            status_code=status.HTTP_405_METHOD_NOT_ALLOWED,
+            detail="Method not allowed for dashboard session",
+        )
+
+    token = request.cookies.get("access_token") or _bearer_token(request)
+    if not token:
+        raise _credentials_error()
+
+    user = _user_from_token(token, session)
+    role = _resolve_role(user)
+    if role is None:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Insufficient permissions",
