@@ -28,20 +28,27 @@ Target: Oracle Cloud VPS + Docker + Cloudflare (see `plano/02`).
 
 ### 1. Database
 
-Reuse the shared PostgreSQL instance; create the `industrial_erp` database/schema.
+Use the externally-managed PostgreSQL container `industrial-erp-postgres`
+(database/user `industrial_erp`), published on the host loopback
+`127.0.0.1:5432`.
 
 ### 2. Application
 
+Copy `.env.example` to `.env` and set `DATABASE_URL` plus a strong `SECRET_KEY`
+(never commit the real `.env`). Then:
+
 ```bash
-DATABASE_URL=postgresql://<user>:<pass>@<host>:5432/industrial_erp \
-SECRET_KEY=<random-32-bytes> \
+cp .env.example .env
 docker compose -f docker-compose.prod.yml up --build -d
 ```
+
+The API runs with `network_mode: host` so it can reach the PostgreSQL on the
+host loopback, and binds to `127.0.0.1:8000` (not exposed publicly).
 
 ### 3. Reverse proxy
 
 Use Nginx Proxy Manager (UI) or `deploy/nginx.conf.example` pointing to
-`api:8000`, forwarding `X-Forwarded-For`.
+`127.0.0.1:8000`, forwarding `X-Forwarded-For`.
 
 ### 4. Domain — `erp.francorafael.com` (Cloudflare)
 

@@ -69,12 +69,12 @@ docker compose exec api python -m scripts.create_user --username admin --passwor
 docker compose exec api python -m scripts.generate_data --months 12 --scenario normal
 ```
 
-> **Production note:** this project can reuse an existing PostgreSQL instead of
-> the local `db` service — override `DATABASE_URL` to point at the shared
-> instance (see `plano/02-arquitetura-infraestrutura.md`). For production, set a
-> strong `SECRET_KEY`, enable rate limiting (`RATE_LIMIT_PER_MINUTE`) and, if
-> behind a reverse proxy, `TRUST_PROXY_HEADERS=true` with a matching
-> `TRUSTED_PROXY_IPS` allowlist.
+> **Production note:** this project reuses an externally-managed PostgreSQL on
+> the VPS (container `industrial-erp-postgres`, published on `127.0.0.1:5432`).
+> The API runs with `network_mode: host` so it can reach that loopback address.
+> For production, set a strong `SECRET_KEY`, enable rate limiting
+> (`RATE_LIMIT_PER_MINUTE`) and, if behind a reverse proxy,
+> `TRUST_PROXY_HEADERS=true` with a matching `TRUSTED_PROXY_IPS` allowlist.
 
 ## Local Development (no Docker)
 
@@ -102,14 +102,22 @@ Roles: `viewer` (read), `operator` (write), `admin` (write + delete + user manag
 
 Target: Oracle Cloud VPS + Docker + Cloudflare (see `plano/02-arquitetura-infraestrutura.md`).
 
-1. **Database** — reuse a shared PostgreSQL instance (schema/database `industrial_erp`).
-2. **Run** the production compose (no local `db` service):
+1. **Database** — use the externally-managed PostgreSQL container
+   `industrial-erp-postgres` (database/user `industrial_erp`, published on the
+   host loopback `127.0.0.1:5432`).
+2. **Configure** the environment — copy `.env.example` to `.env` and set
+   `DATABASE_URL` to the external PostgreSQL (host `127.0.0.1`) plus a strong
+   `SECRET_KEY` (see `.env.example` for placeholders).
+3. **Run** the production compose:
 
    ```bash
-   DATABASE_URL=postgresql://<user>:<pass>@<host>:5432/industrial_erp \
-   SECRET_KEY=<random-32-bytes> \
+   cp .env.example .env   # set DATABASE_URL and a strong SECRET_KEY
    docker compose -f docker-compose.prod.yml up --build -d
    ```
+
+   The API runs with `network_mode: host` and binds to `127.0.0.1:8000`, so it
+   can reach the external PostgreSQL on the host loopback and is not exposed
+   publicly.
 
 3. **Reverse proxy** — use Nginx Proxy Manager (or `deploy/nginx.conf.example`) pointing to
     `api:8000`, with sanitized `X-Forwarded-For` headers and a matching

@@ -4,6 +4,113 @@ This file documents the completion of each task, serving as the source of truth 
 
 ---
 
+## TASK-023 — Provisionamento do PostgreSQL externo na VPS (infra real)
+
+**Status:** DONE
+
+**Data:** 2026-08-15
+
+**IMPLEMENTADO (infraestrutura real aplicada na VPS):**
+- Container `industrial-erp-postgres` (imagem `postgres:16`, `restart unless-stopped`), separado da aplicação.
+- Volume persistente `industrial_erp_postgres_data` (não remover em deploy normal).
+- Banco `industrial_erp`, usuário da aplicação `industrial_erp`, schema `industrial_erp` (além do `public`).
+- Binding `127.0.0.1:5432` (somente loopback) — verificado com `docker inspect`; NÃO exposto à Internet.
+- Role endurecida: `ALTER ROLE industrial_erp NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION;`.
+- Autenticação `scram-sha-256` no `pg_hba.conf` (`local`/`127.0.0.1`/`::1`), com backup `.bak` + `pg_reload_conf`.
+- A API usa `network_mode: host` e bind `127.0.0.1:8000` — acessível somente via reverse proxy/Cloudflare.
+- `DATABASE_URL=postgresql://industrial_erp:<senha>@127.0.0.1:5432/industrial_erp` e `SECRET_KEY` (≥32 bytes) somente via ambiente.
+
+**VALIDAÇÃO DE INTEGRAÇÃO (2026-08-15):**
+- `pytest` → **257 passed** (venv rebuilt para Python 3.11; o `.venv` original apontava binário 3.11 com pacotes de 3.10).
+- `python -m compileall app/ database/ scripts/` → OK.
+- `docker compose -f docker-compose.prod.yml config` (compose v2) → OK; `docker-compose.yml` (dev) → OK.
+- `npm run typecheck` → OK. `npm run build` bloqueado por permissão do `node_modules` (owned by root no ambiente local — sem relação com a configuração).
+- Engine com `DATABASE_URL` do `.env` → dialeto `postgresql`, driver `psycopg2`, pool 5/10/recycle 3600.
+- Alembic usa `DATABASE_URL` como origem; `alembic upgrade head` aplica as 4 migrações e o offline SQL usa dialeto PostgreSQL.
+- Guarda de `SECRET_KEY` validada: chave dev de 21 bytes → `RuntimeError`; chave de 32+ bytes → inicializa.
+- Segredos: `.env` ignorado pelo Git; apenas `.env.example` versionado (placeholders); nenhuma credencial rastreada.
+
+**DIVERGÊNCIAS NO `.env` LOCAL (corrigir na VPS, não é código):**
+- Usuário do banco `industrial_app` → deve ser `industrial_erp` (infra real).
+- `SECRET_KEY=GERE_UMA_CHAVE_SEGURA` (21 bytes) não passa na validação mínima de 32 bytes.
+
+**NÃO VALIDÁVEL NESTE AMBIENTE:**
+- `alembic upgrade head`/`pg_isready`/teste TCP contra o PostgreSQL 16 real (sem Docker daemon nem servidor PostgreSQL local) — permanece pendente na VPS (TASK-021).
+
+**ARQUIVOS ALTERADOS:**
+- `TASKS.md` — TASK-023 registrada com a infra real e os resultados de validação.
+
+**TESTES:**
+```
+257 passed (venv Python 3.11)
+```
+
+**SECURITY AUDIT:**
+- Porta 5432 somente loopback; 8000 somente loopback via `network_mode: host`.
+- Autenticação SCRAM; role sem privilégios administrativos.
+- Secrets somente via ambiente; nada no Git.
+
+**PRÓXIMA TAREFA:**
+TASK-021 — executar `alembic upgrade head` e smoke test PP-PI→QM→CO contra o PostgreSQL real na VPS.
+
+---
+
+## TASK-022 — Revisão da configuração de produção (PostgreSQL externo)
+
+**Status:** DONE
+
+**Data:** 2026-08-15
+
+**IMPLEMENTADO:**
+- `docker-compose.prod.yml` — removido serviço `db` e volume `pgdata`; API com `network_mode: host` alcançando `127.0.0.1:5432`; uvicorn bind `127.0.0.1:8000`; `DATABASE_URL` e `SECRET_KEY` obrigatórios via env.
+- `.env.example` — placeholders: `DATABASE_URL=postgresql://industrial_erp:<password>@127.0.0.1:5432/industrial_erp`, `SECRET_KEY=` vazio.
+- `deploy/nginx.conf.example` — `proxy_pass http://127.0.0.1:8000`.
+- `README.md` e `docs/RUNBOOK.md` — seção de deploy com PostgreSQL externo + host networking.
+
+**ARQUIVOS ALTERADOS:**
+- `docker-compose.prod.yml`, `.env.example`, `deploy/nginx.conf.example`, `README.md`, `docs/RUNBOOK.md`, `TASKS.md`
+
+**VALIDAÇÃO (2026-08-15):**
+- `docker compose -f docker-compose.prod.yml config --quiet` (compose v2) → OK
+- `pytest` → 257 passed · `npm run typecheck` → OK
+- `python -m compileall app/ database/` → OK
+
+**SECURITY AUDIT:**
+- Sem credenciais hardcoded; secrets via ambiente.
+- API não exposta publicamente (loopback + reverse proxy).
+
+**PRÓXIMA TAREFA:**
+TASK-023 registrada; TASK-021 (validação operacional em staging) pendente.
+
+---
+
+## TASK-021 — Validação final para deploy em produção (validação de integração executada)
+
+**Status:** IN PROGRESS
+
+**Data:** 2026-08-15
+
+**IMPLEMENTADO (validação de integração das configurações):**
+- PostgreSQL externo provisionado na VPS (TASK-023): container, volume, banco/usuário/schema, role sem superuser, `pg_hba.conf` scram-sha-256, porta 5432 somente loopback.
+- Engine PostgreSQL/psycopg2 com pool config validado; Alembic via `DATABASE_URL`; guarda de `SECRET_KEY` (32+ bytes) validada.
+- Segredos fora do Git confirmados (`.env` ignorado, `.env.example` apenas placeholders).
+
+**PENDENTE (depende da VPS):**
+- `alembic upgrade head` contra o PostgreSQL real.
+- Smoke test PP-PI → QM → CO em PostgreSQL real.
+- `TRUSTED_PROXY_IPS` real, TLS/HTTPS, confirmação de firewall.
+- Backup, restauração e rollback detalhados.
+
+**TESTES:**
+```
+257 passed · typecheck OK · compose prod OK · compileall OK
+```
+
+**PRÓXIMA TAREFA:**
+Executar validação operacional em staging antes do deploy público.
+
+---
+
 ## TASK-014 — Documentação `docs/` + LICENSE
 
 **Status:** DONE

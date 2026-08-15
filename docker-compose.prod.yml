@@ -2,8 +2,14 @@ services:
   api:
     build: .
     restart: always
+    # Uses the externally-managed PostgreSQL (container `industrial-erp-postgres`)
+    # published on the host loopback at 127.0.0.1:5432. A bridge container cannot
+    # reach host services bound to 127.0.0.1, so the API shares the host network
+    # namespace and connects to that loopback address directly. The API itself
+    # binds to 127.0.0.1:8000, so it is not exposed publicly — only the reverse
+    # proxy / tunnel on the host can reach it.
+    network_mode: host
     environment:
-      # Shared PostgreSQL (central instance) — required, no local db service.
       DATABASE_URL: ${DATABASE_URL}
       SECRET_KEY: ${SECRET_KEY}
       ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-30}
@@ -11,18 +17,14 @@ services:
       # Only trust forwarded client IP headers from configured proxy addresses.
       TRUST_PROXY_HEADERS: "true"
       TRUSTED_PROXY_IPS: "${TRUSTED_PROXY_IPS:-127.0.0.1,::1}"
-    ports:
-      # Keep the API reachable by a local proxy/tunnel, not directly from the internet.
-      - "127.0.0.1:8000:8000"
     mem_limit: 512m
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')"]
       interval: 30s
       timeout: 5s
       retries: 3
-    command: sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"
+    command: sh -c "alembic upgrade head && uvicorn app.main:app --host 127.0.0.1 --port 8000"
 
 # Usage (production):
-#   DATABASE_URL=postgresql://<user>:<pass>@<host>:5432/industrial_erp \
-#   SECRET_KEY=<random-32-bytes> \
+#   cp .env.example .env   # set DATABASE_URL and a strong SECRET_KEY
 #   docker compose -f docker-compose.prod.yml up --build -d
