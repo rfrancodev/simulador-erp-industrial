@@ -75,6 +75,10 @@ docker compose exec api python -m scripts.generate_data --months 12 --scenario n
 > For production, set a strong `SECRET_KEY`, enable rate limiting
 > (`RATE_LIMIT_PER_MINUTE`) and, if behind a reverse proxy,
 > `TRUST_PROXY_HEADERS=true` with a matching `TRUSTED_PROXY_IPS` allowlist.
+> Also set `COOKIE_SECURE=true` so the dashboard auth cookie is only sent over
+> HTTPS (TLS is terminated at the proxy). The rate limiter is in-memory and
+> single-instance: with multiple Uvicorn workers, each worker keeps its own
+> counter (use a shared store like Redis to scale horizontally).
 
 ## Local Development (no Docker)
 
@@ -103,8 +107,8 @@ Roles: `viewer` (read), `operator` (write), `admin` (write + delete + user manag
 Target: Oracle Cloud VPS + Docker + Cloudflare (see `plano/02-arquitetura-infraestrutura.md`).
 
 1. **Database** — use the externally-managed PostgreSQL container
-   `industrial-erp-postgres` (database/user `industrial_erp`, published on the
-   host loopback `127.0.0.1:5432`).
+   `industrial-erp-postgres` (database `industrial_erp`, app user `industrial_app`,
+   published on the host loopback `127.0.0.1:5432`).
 2. **Configure** the environment — copy `.env.example` to `.env` and set
    `DATABASE_URL` to the external PostgreSQL (host `127.0.0.1`) plus a strong
    `SECRET_KEY` (see `.env.example` for placeholders).

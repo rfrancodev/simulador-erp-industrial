@@ -2,7 +2,15 @@
 
 Call :func:`setup_logging` once at application startup. Loggers should be
 obtained via ``logging.getLogger(__name__)`` throughout the codebase and must
-never emit sensitive data (credentials, tokens, payloads).
+never emit sensitive data.
+
+Logging policy:
+    - NEVER log passwords, tokens, JWT payloads, or the ``Authorization`` header.
+    - NEVER log request/response bodies that may contain credentials.
+    - Logging business identifiers (entity codes, order numbers, usernames) is
+      acceptable; these are not secrets.
+    - The database URL is logged with the credentials stripped
+      (see ``app/database/connection.py``).
 """
 
 from __future__ import annotations

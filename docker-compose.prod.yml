@@ -17,6 +17,8 @@ services:
       # Only trust forwarded client IP headers from configured proxy addresses.
       TRUST_PROXY_HEADERS: "true"
       TRUSTED_PROXY_IPS: "${TRUSTED_PROXY_IPS:-127.0.0.1,::1}"
+      # Mark the dashboard auth cookie Secure (TLS is terminated at the proxy).
+      COOKIE_SECURE: "${COOKIE_SECURE:-true}"
     mem_limit: 512m
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')"]

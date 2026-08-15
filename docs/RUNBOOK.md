@@ -29,8 +29,8 @@ Target: Oracle Cloud VPS + Docker + Cloudflare (see `plano/02`).
 ### 1. Database
 
 Use the externally-managed PostgreSQL container `industrial-erp-postgres`
-(database/user `industrial_erp`), published on the host loopback
-`127.0.0.1:5432`.
+(database `industrial_erp`, app user `industrial_app`), published on the host
+loopback `127.0.0.1:5432`.
 
 ### 2. Application
 

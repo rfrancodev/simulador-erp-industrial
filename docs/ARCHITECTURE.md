@@ -67,6 +67,24 @@ Invalid transitions raise `InvalidStateTransitionError` (HTTP 409).
 - Account lockout after 5 failed attempts (15 min)
 - In-memory sliding-window rate limiter (per IP)
 - All `/api/*` routers protected; HTML dashboard pages are public (read-only)
+- Auth cookie (`access_token`) is `HttpOnly` + `SameSite=Lax` (+ `Secure` when
+  `COOKIE_SECURE=true`)
+
+### Security notes & limitations
+
+- **JWT is stateless** — tokens remain valid until expiry even if a user is
+  deactivated (`is_active=False` only blocks new logins). Mitigated by a short
+  `ACCESS_TOKEN_EXPIRE_MINUTES` (default 30; consider 15 in production).
+- **Rate limiter is in-memory** (single-instance). With multiple Uvicorn workers
+  or replicas, each process keeps its own counter. A shared store (e.g. Redis)
+  is required for horizontal scaling.
+- **CORS is not configured** intentionally: the dashboard is server-side
+  rendered (Jinja2) and the API is consumed on the same origin through the
+  reverse proxy. If an external SPA is added, introduce `CORSMiddleware` with a
+  restricted `allow_origins` list.
+- **`with_for_update()` row locks** are honoured by PostgreSQL but ignored by
+  SQLite. SQLite is only for dev/test; concurrent writes may race there. In
+  production (PostgreSQL) the row locks are effective.
 
 ## Persistence
 

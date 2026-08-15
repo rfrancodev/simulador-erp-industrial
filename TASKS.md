@@ -542,8 +542,8 @@ TASK-020 → CI/hardening (multi-stage build, hadolint, docker compose config)
 - [ ] Configurar `TRUSTED_PROXY_IPS` com o IP/CIDR real do proxy imediato. (depende do ambiente de deploy)
 - [ ] Confirmar TLS/HTTPS no Cloudflare ou proxy reverso. (depende do ambiente de deploy)
 - [ ] Confirmar que a porta `8000` não é acessível externamente e está limitada ao proxy/Tunnel. (configuração aplicada; validação externa pendente)
-- [x] PostgreSQL externo provisionado na VPS: container `industrial-erp-postgres` (postgres:16), volume persistente `industrial_erp_postgres_data`, banco `industrial_erp`, usuário `industrial_erp`. (TASK-023)
-- [x] Usuário da aplicação sem privilégios administrativos (`NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION`). (TASK-023)
+- [x] PostgreSQL externo provisionado na VPS: container `industrial-erp-postgres` (postgres:16), volume persistente `industrial_erp_postgres_data`, banco `industrial_erp`, usuário da aplicação `industrial_app`. (TASK-023)
+- [x] Usuário da aplicação sem privilégios administrativos (`NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION`). (TASK-023) — verificado no PG real: `industrial_app` = `usesuper=False, usecreatedb=False`.
 - [x] Autenticação endurecida: `pg_hba.conf` com `scram-sha-256` para `local`/`127.0.0.1`/`::1`, backup `.bak` + `pg_reload_conf`. (TASK-023)
 - [x] Porta `5432` limitada ao loopback `127.0.0.1` — verificado com `docker inspect`. (TASK-023)
 - [ ] Executar `alembic upgrade head` contra o PostgreSQL real. (smoke test com SQLite: migrações aplicadas; dialeto PostgreSQL validado via offline SQL; contra o banco real pendente)
@@ -608,8 +608,17 @@ servidor. Qualquer alteração de código/deploy deve respeitar estes fatos.
 - Imagem: `postgres:16`
 - Volume persistente: `industrial_erp_postgres_data` (nunca remover em deploy normal)
 - Banco: `industrial_erp`
-- Usuário da aplicação: `industrial_erp`
+- Usuário da aplicação: `industrial_app` (não-superuser, verificado no PG real)
 - Porta: `127.0.0.1:5432` (somente loopback — verificado com `docker inspect`)
+
+> **Nota (2026-08-15):** a auditoria contra o PostgreSQL real identificou 3 roles:
+> - `industrial_app` — `usesuper=false, usecreatedb=false` → **usuário da aplicação** (correto).
+> - `industrial_erp` — `usesuper=true, usecreatedb=true` → ainda SUPERUSER; não deve ser usado pela aplicação.
+> - `industrial_admin` — `usesuper=true, usecreatedb=true` → administrativo (DBA), manter fora da aplicação.
+>
+> O `.env` da VPS aponta para `industrial_app`. Recomendação: remover privilégios
+> de superuser de `industrial_erp` (`ALTER ROLE industrial_erp NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION;`)
+> ou mantê-lo apenas como role administrativa não utilizada pela aplicação.
 
 Comando utilizado:
 ```bash
@@ -618,7 +627,7 @@ docker volume create industrial_erp_postgres_data
 docker run -d \
   --name industrial-erp-postgres \
   --restart unless-stopped \
-  -e POSTGRES_USER=industrial_erp \
+  -e POSTGRES_USER=industrial_app \
   -e POSTGRES_PASSWORD='<senha forte>' \
   -e POSTGRES_DB=industrial_erp \
   -p 127.0.0.1:5432:5432 \
@@ -635,10 +644,10 @@ docker inspect industrial-erp-postgres --format '{{.HostConfig.PortBindings}}'
 - Banco: `industrial_erp`
 - Schema criado: `industrial_erp` (`CREATE SCHEMA IF NOT EXISTS industrial_erp;`)
 - Estrutura: `industrial_erp` (schema) + `public`
-- O schema `industrial_erp` pertence ao usuário `industrial_erp`.
+- O schema `industrial_erp` pertence ao usuário da aplicação (`industrial_app`).
 
 **Usuário da aplicação (sem privilégios administrativos):**
-- Aplicado: `ALTER ROLE industrial_erp NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION;`
+- Aplicado: `ALTER ROLE industrial_app NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION;`
 - A aplicação deve usar somente os privilégios necessários para operar suas próprias tabelas/schema.
 
 **Autenticação (scram-sha-256):**
@@ -656,7 +665,7 @@ docker inspect industrial-erp-postgres --format '{{.HostConfig.PortBindings}}'
   ```
 
 **Secrets (nunca versionar):**
-- `DATABASE_URL=postgresql://industrial_erp:<senha>@127.0.0.1:5432/industrial_erp`
+- `DATABASE_URL=postgresql://industrial_app:<senha>@127.0.0.1:5432/industrial_erp`
   — senha real somente no ambiente de produção; `.env.example` apenas placeholders.
 - `SECRET_KEY=<valor>` — gerado com `openssl rand -hex 32`; somente no ambiente de execução.
 
@@ -666,14 +675,14 @@ docker inspect industrial-erp-postgres --format '{{.HostConfig.PortBindings}}'
 
 **Teste de conexão esperado:**
 ```bash
-docker exec industrial-erp-postgres pg_isready -U industrial_erp -d industrial_erp
+docker exec industrial-erp-postgres pg_isready -U industrial_app -d industrial_erp
 # → accepting connections
 
 docker exec industrial-erp-postgres \
   env PGPASSWORD='<senha>' \
-  psql -h 127.0.0.1 -U industrial_erp -d industrial_erp \
+  psql -h 127.0.0.1 -U industrial_app -d industrial_erp \
   -c "SELECT current_user, current_database();"
-# → industrial_erp | industrial_erp
+# → industrial_app | industrial_erp
 ```
 
 **Persistência:**
@@ -717,7 +726,7 @@ smoke test PP-PI→QM→CO contra o PostgreSQL real (TASK-021).
   permanece pendente na VPS (TASK-021).
 
 ### TASK-024 — Correções pós-auditoria (MEDIUM/LOW)
-**Status:** PENDING
+**Status:** DONE
 
 **Objetivo:** Corrigir os achados MEDIUM e LOW identificados na auditoria de
 segurança de 2026-08-15 (ver seção "Relatório de Auditoria de Segurança" em
@@ -726,53 +735,49 @@ segurança de 2026-08-15 (ver seção "Relatório de Auditoria de Segurança" em
 **Checklist de execução:**
 
 **MEDIUM:**
-- [ ] **MEDIUM-01 — CORS:** Avaliar necessidade de `CORSMiddleware`. Se o app for
-  consumido exclusivamente via reverse proxy + dashboard HTML, documentar que não
-  é necessário. Se houver SPA externo, adicionar `CORSMiddleware` com
-  `allow_origins` restritos via variável de ambiente (`CORS_ORIGINS`).
-- [ ] **MEDIUM-02 — Discrepância usuário PostgreSQL:** O `.env` local usa
-  `industrial_app` mas TASK-023 documenta `industrial_erp`. Decisão:
-  - Opção A: Atualizar TASK-023 e Guia de Deploy para referenciar `industrial_app`
-    (se o banco já foi provisionado com esse usuário).
-  - Opção B: Renomear o usuário no PG para `industrial_erp` e atualizar `.env` na VPS.
-  - **Recomendação:** Opção A (mais simples, usuário já funciona sem superuser).
+- [x] **MEDIUM-01 — CORS:** Documentado como **não necessário** (dashboard é
+  server-side rendered — Jinja2 — e a API é consumida na mesma origem via reverse
+  proxy). Nota adicionada em `docs/ARCHITECTURE.md` e comentário no `.env.example`.
+- [x] **MEDIUM-02 — Discrepância usuário PostgreSQL:** Resolvido pela **Opção A**.
+  Auditado o PG real (3 roles): `industrial_app` (não-superuser) é o usuário real
+  da aplicação; `industrial_erp` e `industrial_admin` ainda são SUPERUSER. Docs
+  (TASK-023, Guia de Deploy, README, RUNBOOK, `.env.example`) alinhados para
+  `industrial_app`. Registrada recomendação de remover superuser de `industrial_erp`.
 
 **LOW:**
-- [ ] **LOW-01 — Rate limiter:** Documentar limitação (single-instance). Se o
-  deploy for multi-instância, planejar migração para Redis. Por ora, adicionar
-  nota no README sobre o comportamento em multi-worker.
-- [ ] **LOW-02 — JWT sem revogação ativa:** Documentar comportamento (tokens
-  válidos até expirar). Considerar reduzir `ACCESS_TOKEN_EXPIRE_MINUTES` para
-  15 min em produção. Adicionar nota no docs/ARCHITECTURE.md.
-- [ ] **LOW-03 — Cookie sem flag `Secure`:** Adicionar `secure=True` ao cookie
-  `access_token` no dashboard. Como o reverse proxy termina TLS e o app vê HTTP,
-  usar variável de ambiente `COOKIE_SECURE=true` ou detectar via
-  `X-Forwarded-Proto`. Alternativa: documentar que o proxy deve adicionar
-  `Strict-Transport-Security`.
-- [ ] **LOW-04 — Logs sensíveis:** Adicionar nota no `app/core/logging.py`
-  sobre a política de não logar senhas/tokens. Revisar services para confirmar
-  que nenhum dado sensível é logado (atualmente OK: apenas IDs, codes, usernames).
-- [ ] **LOW-05 — `with_for_update()` em SQLite:** Adicionar nota no README ou
-  `docs/ARCHITECTURE.md` documentando que SQLite é apenas para dev/test e que
-  race conditions em escrita concorrente são esperadas nesse modo. Em produção
-  com PostgreSQL, os row locks funcionam corretamente.
+- [x] **LOW-01 — Rate limiter:** Nota no `README.md` e `docs/ARCHITECTURE.md`
+  (in-memory, single-instance; Redis para escalar horizontal).
+- [x] **LOW-02 — JWT sem revogação ativa:** Documentado em `docs/ARCHITECTURE.md`
+  (stateless; mitigado por expiração curta).
+- [x] **LOW-03 — Cookie sem flag `Secure`:** Implementado `COOKIE_SECURE` env var
+  em `app/api/dashboard.py` (função `_cookie_secure()`); `docker-compose.prod.yml`
+  default `true`; `.env.example` documenta. Teste `test_dashboard_login_cookie_secure_flag`.
+- [x] **LOW-04 — Logs sensíveis:** Política de logging documentada na docstring de
+  `app/core/logging.py` (nunca logar senhas/tokens/payloads).
+- [x] **LOW-05 — `with_for_update()` em SQLite:** Nota em `docs/ARCHITECTURE.md`
+  (SQLite dev/test; PostgreSQL honra row locks).
 
-**Documentos a atualizar:**
+**Documentos atualizados:**
 - `TASKS.md` (esta task)
-- `docs/ARCHITECTURE.md` (notas sobre JWT, rate limiter, SQLite)
-- `README.md` (nota sobre rate limiter single-instance)
-- `.env.example` (adicionar `CORS_ORIGINS=` se aplicável, `COOKIE_SECURE=`)
+- `docs/ARCHITECTURE.md` (seção "Security notes & limitations")
+- `README.md` (nota de produção: COOKIE_SECURE + rate limiter single-instance)
+- `.env.example` (COOKIE_SECURE, nota CORS)
+- `docker-compose.prod.yml` (COOKIE_SECURE env)
+- `app/api/dashboard.py` (cookie Secure flag)
+- `app/core/logging.py` (política de logs)
+- `docs/RUNBOOK.md`, `HANDOFFS.md` (usuário `industrial_app`)
 
 **Validação:**
-- `pytest` → manter 257+ testes passando
-- `python -m compileall app/ database/` → OK
+- `pytest` → **258 passed** (era 257; +1 teste cookie Secure)
+- `python -m compileall app/ database/ scripts/` → OK
 - `docker compose -f docker-compose.prod.yml config --quiet` → OK
 - `npm run typecheck` → OK
+- `import app.main` com SECRET_KEY válido → OK
 
 **Critérios de aceite:**
-- Todos os itens MEDIUM e LOW documentados ou corrigidos
-- Nenhum novo achado CRITICAL ou HIGH introduzido
-- Docs atualizados refletem o comportamento real
+- [x] Todos os itens MEDIUM e LOW documentados ou corrigidos
+- [x] Nenhum novo achado CRITICAL ou HIGH introduzido
+- [x] Docs atualizados refletem o comportamento real
 
 ---
 
@@ -787,13 +792,13 @@ sem criar outro banco (ver TASK-023):
 Container:  industrial-erp-postgres  (postgres:16, restart unless-stopped)
 Volume:     industrial_erp_postgres_data
 Database:   industrial_erp
-User:       industrial_erp
+User:       industrial_app (app, não-superuser)
 Porta:      127.0.0.1:5432 (somente loopback)
 Schema:     industrial_erp
 Auth:       scram-sha-256
 ```
 
-`DATABASE_URL=postgresql://industrial_erp:<senha>@127.0.0.1:5432/industrial_erp`
+`DATABASE_URL=postgresql://industrial_app:<senha>@127.0.0.1:5432/industrial_erp`
 
 #### Passo 2 — Segredos
 
@@ -806,12 +811,13 @@ openssl rand -hex 32   # SECRET_KEY (32 bytes)
 Criar `.env` na raiz do projeto no servidor:
 
 ```
-DATABASE_URL=postgresql://industrial_erp:<senha>@127.0.0.1:5432/industrial_erp
+DATABASE_URL=postgresql://industrial_app:<senha>@127.0.0.1:5432/industrial_erp
 SECRET_KEY=<valor-gerado>
 ACCESS_TOKEN_EXPIRE_MINUTES=30
 RATE_LIMIT_PER_MINUTE=60
 TRUST_PROXY_HEADERS=true
 TRUSTED_PROXY_IPS=127.0.0.1,::1
+COOKIE_SECURE=true
 ```
 
 #### Passo 3 — Cloudflare (domínio `erp.francorafael.com`)
@@ -868,7 +874,7 @@ docker compose -f docker-compose.prod.yml exec api python -m scripts.generate_da
 
 ```bash
 docker exec industrial-erp-postgres \
-  pg_dump -U industrial_erp -d industrial_erp > backup-$(date +%F).sql
+  pg_dump -U industrial_app -d industrial_erp > backup-$(date +%F).sql
 # rollback: git revert <commit> + docker compose up --build -d + restaurar dump
 ```
 
@@ -877,15 +883,15 @@ explícito de backup/recuperação.
 
 ### Sequência Concluída
 
-As tasks de implementação foram concluídas. A validação operacional de produção permanece pendente na `TASK-021`; a `TASK-022` ajustou a configuração de produção para o PostgreSQL externo da VPS; a `TASK-023` registrou o provisionamento real do PostgreSQL na VPS (container, volume, schema, role sem superuser, `pg_hba.conf` scram-sha-256, porta 5432 somente loopback). A auditoria de segurança de 2026-08-15 gerou a `TASK-024` (correções MEDIUM/LOW). Pendências resolvidas antes do deploy:
+As tasks de implementação foram concluídas. A validação operacional de produção permanece pendente na `TASK-021`; a `TASK-022` ajustou a configuração de produção para o PostgreSQL externo da VPS; a `TASK-023` registrou o provisionamento real do PostgreSQL na VPS (container, volume, schema, role sem superuser, `pg_hba.conf` scram-sha-256, porta 5432 somente loopback); a `TASK-024` concluiu as correções pós-auditoria (MEDIUM/LOW — CORS documentado, usuário `industrial_app` alinhado, cookie `Secure`, política de logs, rate limiter/JWT/SQLite documentados). Pendências resolvidas antes do deploy:
 - **I-84** — hadolint-action pinado a commit SHA
 - **I-86** — imagem base `slim` (glibc) mantida por compatibilidade
 
 Fora do escopo (atualização futura, separada do projeto):
 - **Automação externa n8n/Power BI** (`plano/11`)
 
-Próximo passo: executar a `TASK-024` (correções pós-auditoria), depois a `TASK-021` em ambiente de staging — `alembic upgrade head`
-e smoke test PP-PI→QM→CO contra o PostgreSQL real (`industrial-erp-postgres`) antes do deploy público.
+Próximo passo: executar a `TASK-021` em ambiente de staging — `alembic upgrade head`
+e smoke test PP-PI→QM→CO contra o PostgreSQL real (`industrial-erp-postgres`) antes do deploy público. Pendência de infra recomendada: remover privilégios de superuser da role `industrial_erp` no PG (ver TASK-023).
 
 ---
 

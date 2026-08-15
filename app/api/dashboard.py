@@ -1,5 +1,7 @@
 """Dashboard router — serves HTML pages and analytics API endpoints."""
 
+import os
+
 from fastapi import APIRouter, Depends, Form, HTTPException, Request, status
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
@@ -26,6 +28,16 @@ api_router = APIRouter(
 templates = Jinja2Templates(directory="templates")
 
 _ACCESS_TOKEN_COOKIE = "access_token"
+
+
+def _cookie_secure() -> bool:
+    """Whether the auth cookie should be marked ``Secure``.
+
+    The reverse proxy terminates TLS, so the app sees HTTP. Set
+    ``COOKIE_SECURE=true`` in production (behind Cloudflare/HTTPS) so the
+    HttpOnly auth cookie is only sent over HTTPS.
+    """
+    return os.getenv("COOKIE_SECURE", "false").lower() in ("1", "true", "yes")
 
 
 def _analytics(session: Session = Depends(session_dependency)) -> AnalyticsService:
@@ -70,6 +82,7 @@ async def dashboard_login(
         _ACCESS_TOKEN_COOKIE,
         token,
         httponly=True,
+        secure=_cookie_secure(),
         samesite="lax",
         max_age=token_expiry_minutes() * 60,
     )

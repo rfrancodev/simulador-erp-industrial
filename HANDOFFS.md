@@ -4,6 +4,41 @@ This file documents the completion of each task, serving as the source of truth 
 
 ---
 
+## TASK-024 — Correções pós-auditoria (MEDIUM/LOW)
+
+**Status:** DONE
+
+**Data:** 2026-08-15
+
+**IMPLEMENTADO:**
+- **MEDIUM-01 (CORS):** documentado como não necessário (dashboard server-side render + API mesma origem via proxy) — nota em `docs/ARCHITECTURE.md` e `.env.example`.
+- **MEDIUM-02 (usuário PG):** auditado o PG real (3 roles). `industrial_app` (não-superuser) é o usuário real da aplicação; `industrial_erp` e `industrial_admin` são SUPERUSER. Docs (TASK-023, Guia de Deploy, README, RUNBOOK, `.env.example`) alinhados para `industrial_app`.
+- **LOW-01 (rate limiter):** documentado single-instance (README + ARCHITECTURE).
+- **LOW-02 (JWT stateless):** documentado em ARCHITECTURE.
+- **LOW-03 (cookie Secure):** `COOKIE_SECURE` env var em `app/api/dashboard.py`; compose prod default `true`; teste `test_dashboard_login_cookie_secure_flag`.
+- **LOW-04 (logs):** política documentada na docstring de `app/core/logging.py`.
+- **LOW-05 (with_for_update SQLite):** nota em ARCHITECTURE.
+
+**ARQUIVOS ALTERADOS:**
+- `app/api/dashboard.py`, `app/core/logging.py`, `tests/unit/test_dashboard.py`
+- `.env.example`, `docker-compose.prod.yml`, `docs/ARCHITECTURE.md`, `docs/RUNBOOK.md`, `README.md`
+- `TASKS.md`, `auditoria.md`, `HANDOFFS.md`
+
+**ACHADO ADICIONAL:**
+- Role `industrial_erp` ainda SUPERUSER no PG real. Recomendação registrada na TASK-023:
+  `ALTER ROLE industrial_erp NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION;`
+
+**TESTES:**
+```
+258 passed (era 257; +1 teste cookie Secure)
+```
+- `compileall` OK · `docker compose -f docker-compose.prod.yml config` OK · `typecheck` OK
+
+**PRÓXIMA TAREFA:**
+TASK-021 — validação operacional em staging (alembic upgrade head + smoke test PP-PI→QM→CO contra PostgreSQL real) + remover superuser de `industrial_erp` na VPS.
+
+---
+
 ## TASK-023 — Provisionamento do PostgreSQL externo na VPS (infra real)
 
 **Status:** DONE
@@ -31,7 +66,9 @@ This file documents the completion of each task, serving as the source of truth 
 - Segredos: `.env` ignorado pelo Git; apenas `.env.example` versionado (placeholders); nenhuma credencial rastreada.
 
 **DIVERGÊNCIAS NO `.env` LOCAL (corrigir na VPS, não é código):**
-- Usuário do banco `industrial_app` → deve ser `industrial_erp` (infra real).
+- Usuário do banco `industrial_app` (não-superuser) é o usuário real da aplicação; a
+  documentação antiga mencionava `industrial_erp`, que no PG real ainda é SUPERUSER
+  (corrigido na TASK-024 — ver nota abaixo).
 - `SECRET_KEY=GERE_UMA_CHAVE_SEGURA` (21 bytes) não passa na validação mínima de 32 bytes.
 
 **NÃO VALIDÁVEL NESTE AMBIENTE:**

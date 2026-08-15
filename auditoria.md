@@ -4158,3 +4158,56 @@ O projeto está **PRONTO PARA DEPLOY EM PRODUÇÃO** após as seguintes ações:
 **Assinatura:**  
 Auditor de Segurança — 2026-08-15  
 Code Review + Infrastructure Verification against PostgreSQL 16.15 real
+
+---
+
+## Execução TASK-024 — Correções pós-auditoria (MEDIUM/LOW)
+
+**Data:** 2026-08-15
+**Status:** DONE
+
+### Correções aplicadas
+
+| Achado | Ação | Resultado |
+|--------|------|-----------|
+| MEDIUM-01 (CORS) | Documentado como não necessário (server-side render + proxy); nota em ARCHITECTURE.md e `.env.example` | Documentado |
+| MEDIUM-02 (usuário PG) | Auditado PG real (3 roles); docs alinhados para `industrial_app` (não-superuser); `industrial_erp`/`industrial_admin` permanecem superuser | Docs corrigidos + recomendação de remover superuser de `industrial_erp` |
+| LOW-01 (rate limiter) | Documentado single-instance em README + ARCHITECTURE | Documentado |
+| LOW-02 (JWT stateless) | Documentado em ARCHITECTURE.md | Documentado |
+| LOW-03 (cookie Secure) | `COOKIE_SECURE` env var em `app/api/dashboard.py`; compose prod default `true`; teste dedicado | Corrigido (código) |
+| LOW-04 (logs sensíveis) | Política documentada na docstring de `app/core/logging.py` | Documentado |
+| LOW-05 (with_for_update SQLite) | Nota em ARCHITECTURE.md (SQLite dev/test) | Documentado |
+
+### Achado adicional (novo)
+
+- **Role `industrial_erp` ainda é SUPERUSER no PG real** (`usesuper=true`). A TASK-023
+  documentava essa role como usuário da aplicação com privilégios removidos, mas a
+  auditoria revelou que a role segura é `industrial_app`. Recomendação registrada:
+  `ALTER ROLE industrial_erp NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION;`
+  (pendência de infra, executar na VPS).
+
+### Validação
+
+- `pytest` → **258 passed** (era 257; +1 teste `test_dashboard_login_cookie_secure_flag`)
+- `python -m compileall app/ database/ scripts/` → OK
+- `docker compose -f docker-compose.prod.yml config --quiet` → OK
+- `npm run typecheck` → OK
+- `import app.main` com SECRET_KEY válido → OK
+
+### Arquivos alterados
+
+- `app/api/dashboard.py` — cookie `Secure` via `COOKIE_SECURE`
+- `app/core/logging.py` — política de logs
+- `tests/unit/test_dashboard.py` — teste cookie Secure
+- `.env.example` — `COOKIE_SECURE`, nota CORS, usuário `industrial_app`
+- `docker-compose.prod.yml` — `COOKIE_SECURE` env (default true)
+- `docs/ARCHITECTURE.md` — seção "Security notes & limitations"
+- `docs/RUNBOOK.md` — usuário `industrial_app`
+- `README.md` — nota de produção (COOKIE_SECURE, rate limiter)
+- `TASKS.md` — TASK-023/024 atualizadas
+- `HANDOFFS.md` — divergência de usuário resolvida
+
+### Riscos restantes
+
+- `industrial_erp` e `industrial_admin` ainda superuser (recomendado remover na VPS).
+- JWT stateless, rate limiter in-memory — documentados, aceitáveis para single-instance.

@@ -338,6 +338,33 @@ class TestDashboardAPI:
         assert login.status_code == 401
         assert "access_token" not in login.cookies
 
+    @pytest.mark.no_auth
+    def test_dashboard_login_cookie_secure_flag(self, client: TestClient, session: Session, monkeypatch):
+        from app.domain.auth import UserCreate, UserRole
+        from app.services.auth_service import AuthService
+
+        AuthService(session).create_user(
+            UserCreate(username="secureadmin", password="secret123", role=UserRole.ADMIN)
+        )
+
+        monkeypatch.setenv("COOKIE_SECURE", "true")
+        login = client.post(
+            "/dashboard/login",
+            data={"username": "secureadmin", "password": "secret123"},
+            follow_redirects=False,
+        )
+        assert login.status_code == 303
+        assert "Secure" in login.headers.get("set-cookie", "")
+
+        monkeypatch.setenv("COOKIE_SECURE", "false")
+        login2 = client.post(
+            "/dashboard/login",
+            data={"username": "secureadmin", "password": "secret123"},
+            follow_redirects=False,
+        )
+        assert login2.status_code == 303
+        assert "Secure" not in login2.headers.get("set-cookie", "")
+
     def test_home_page_renders(self, client: TestClient):
         resp = client.get("/dashboard/")
         assert resp.status_code == 200
