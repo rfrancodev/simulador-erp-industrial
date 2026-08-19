@@ -1,5 +1,7 @@
 """Repository for PP-PI — Production domain."""
 
+from decimal import Decimal
+
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, joinedload
 
@@ -180,6 +182,18 @@ class BatchRepository(BaseRepository[Batch]):
         )
         return self._session.scalar(stmt) or 0
 
+    def sum_actual_by_order(self, order_id: int) -> Decimal | None:
+        """Sum the consolidated actual quantities of an order's batches.
+
+        Returns ``None`` when no batch of the order has a real quantity yet.
+        """
+        return self._session.scalar(
+            select(func.sum(Batch.actual_quantity)).where(
+                Batch.production_order_id == order_id,
+                Batch.actual_quantity.isnot(None),
+            )
+        )
+
 
 class ProductionRecipeRepository(BaseRepository[ProductionRecipe]):
     def __init__(self, session: Session):
@@ -257,6 +271,26 @@ class ProductionConfirmationRepository(BaseRepository[ProductionConfirmation]):
             .limit(limit)
         )
         return list(self._session.execute(stmt).scalars().all())
+
+    def get_final_confirmation(self, batch_id: int) -> ProductionConfirmation | None:
+        """Return the batch's final confirmation (``is_final``, newest first).
+
+        Ties on ``confirmation_time`` are broken by the highest ``id`` so the
+        result is deterministic (TASK-028).
+        """
+        stmt = (
+            select(ProductionConfirmation)
+            .where(
+                ProductionConfirmation.batch_id == batch_id,
+                ProductionConfirmation.is_final == True,
+            )
+            .order_by(
+                ProductionConfirmation.confirmation_time.desc(),
+                ProductionConfirmation.id.desc(),
+            )
+            .limit(1)
+        )
+        return self._session.execute(stmt).scalar_one_or_none()
 
     def count_by_batch(self, batch_id: int) -> int:
         stmt = (

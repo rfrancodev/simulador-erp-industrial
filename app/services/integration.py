@@ -36,6 +36,7 @@ from app.domain.production.recipe import ProductionOrderStatus
 from app.domain.quality.inspection import InspectionStatus, QualityInspectionCreate
 from app.domain.state_machine import PRODUCTION_ORDER_TRANSITIONS
 from app.repositories.costing_repository import CostRecordRepository
+from app.repositories.production_repository import BatchRepository
 from app.repositories.quality_repository import QualityInspectionRepository
 
 logger = getLogger(__name__)
@@ -132,6 +133,10 @@ def _auto_complete_order(session, batch) -> None:
         if step == ProductionOrderStatus.COMPLETED:
             order.actual_end = datetime.now(UTC)
         current = step
+
+    batch_actuals = BatchRepository(session).sum_actual_by_order(order.id)
+    if batch_actuals is not None:
+        order.actual_quantity = batch_actuals.quantize(Decimal("0.001"))
 
     _auto_create_cost_record(session, order)
     logger.info(

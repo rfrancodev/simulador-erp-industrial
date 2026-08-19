@@ -8,6 +8,7 @@ translated into domain errors before propagating to the API layer (L-03).
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from decimal import Decimal
 from logging import getLogger
 
 from sqlalchemy import select
@@ -206,6 +207,9 @@ class ProductionService:
             order.actual_start = now
         if status in (ProductionOrderStatus.COMPLETED, ProductionOrderStatus.PARTIAL):
             order.actual_end = now
+            batch_actuals = self.batches.sum_actual_by_order(order.id)
+            if batch_actuals is not None:
+                order.actual_quantity = batch_actuals.quantize(Decimal("0.001"))
 
         order.status = status.value
         try:
@@ -246,6 +250,8 @@ class ProductionService:
 
         try:
             updated = self.batches.update_status(id, status)
+            if status == BatchStatus.COMPLETED:
+                self._consolidate_batch_actuals(updated)
             if status in (BatchStatus.COMPLETED, BatchStatus.SCRAP):
                 event_bus.publish(
                     EVENT_BATCH_COMPLETED, session=self._session, batch=updated
@@ -256,6 +262,23 @@ class ProductionService:
             raise
         logger.info("Batch %s status %s -> %s", updated.batch_number, current.value, status.value)
         return updated
+
+    def _consolidate_batch_actuals(self, batch: Batch) -> None:
+        """Fill ``actual_quantity``/``yield_percent`` of a COMPLETED batch.
+
+        Uses the batch's final production confirmation (``is_final``, most
+        recent ``confirmation_time``, highest ``id`` on tie). When no final
+        confirmation exists the actuals stay ``None`` — no quantity is guessed.
+        Runs inside the same transaction as the status update (M-05).
+        """
+        confirmation = self.confirmations.get_final_confirmation(batch.id)
+        if confirmation is None:
+            return
+        batch.actual_quantity = confirmation.quantity.quantize(Decimal("0.001"))
+        if batch.planned_quantity > 0:
+            batch.yield_percent = (
+                (batch.actual_quantity / batch.planned_quantity) * 100
+            ).quantize(Decimal("0.01"))
 
     def create_batch(self, data: BatchCreate) -> Batch:
         if self.orders.get_by_id(data.production_order_id) is None:
