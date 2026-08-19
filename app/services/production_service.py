@@ -14,7 +14,12 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.core.events import EVENT_BATCH_CREATED, EVENT_ORDER_COMPLETED, event_bus
+from app.core.events import (
+    EVENT_BATCH_COMPLETED,
+    EVENT_BATCH_CREATED,
+    EVENT_ORDER_COMPLETED,
+    event_bus,
+)
 from app.core.exceptions import (
     ComponentUnitMismatchError,
     DatabaseIntegrityError,
@@ -241,6 +246,10 @@ class ProductionService:
 
         try:
             updated = self.batches.update_status(id, status)
+            if status in (BatchStatus.COMPLETED, BatchStatus.SCRAP):
+                event_bus.publish(
+                    EVENT_BATCH_COMPLETED, session=self._session, batch=updated
+                )
             self._session.commit()
         except Exception:
             self._session.rollback()

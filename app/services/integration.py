@@ -5,6 +5,7 @@ The production/quality services publish domain events through the shared
 SAME transaction:
 
 - ``batch.created``      -> auto-create a pending Quality Inspection (QM gate)
+- ``batch.completed``    -> auto-complete the Production Order when the last batch ends (PP -> CO)
 - ``order.completed``    -> auto-create a planned Cost Record (CO)
 - ``inspection.failed``  -> apply a rework cost to the order's Cost Record (QM -> CO)
 
@@ -15,20 +16,25 @@ updated) and use repositories (flush-only), so the publishing service's
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from decimal import Decimal
 from logging import getLogger
 
 from sqlalchemy import select
 
 from app.core.events import (
+    EVENT_BATCH_COMPLETED,
     EVENT_BATCH_CREATED,
     EVENT_INSPECTION_FAILED,
     EVENT_ORDER_COMPLETED,
     event_bus,
 )
 from app.domain.costing.cost import CostRecordCreate
-from app.domain.entities import Batch, QualityInspection
+from app.domain.entities import Batch, ProductionOrder, QualityInspection
+from app.domain.production.batch import BatchStatus
+from app.domain.production.recipe import ProductionOrderStatus
 from app.domain.quality.inspection import InspectionStatus, QualityInspectionCreate
+from app.domain.state_machine import PRODUCTION_ORDER_TRANSITIONS
 from app.repositories.costing_repository import CostRecordRepository
 from app.repositories.quality_repository import QualityInspectionRepository
 
@@ -56,6 +62,7 @@ def register_integration_handlers() -> None:
         return
     _registered = True
     event_bus.subscribe(EVENT_BATCH_CREATED, _auto_create_inspection)
+    event_bus.subscribe(EVENT_BATCH_COMPLETED, _auto_complete_order)
     event_bus.subscribe(EVENT_ORDER_COMPLETED, _auto_create_cost_record)
     event_bus.subscribe(EVENT_INSPECTION_FAILED, _on_inspection_failed)
 
@@ -67,6 +74,69 @@ def _auto_create_inspection(session, batch) -> None:
     inspection_lot = f"QI-{batch.id:012d}"
     repo.create(QualityInspectionCreate(batch_id=batch.id, inspection_lot=inspection_lot))
     logger.info("Auto-created quality inspection %s for batch %s", inspection_lot, batch.batch_number)
+
+
+def _auto_complete_order(session, batch) -> None:
+    """Auto-complete the Production Order when all its batches have ended.
+
+    ``COMPLETED`` and ``SCRAP`` are terminal batch states: when no batch of the
+    order remains active (``CREATED``/``IN_PRODUCTION``/``REWORK``), production is
+    over and the order advances to ``COMPLETED`` following
+    ``PRODUCTION_ORDER_TRANSITIONS``. Only orders already released into
+    production (``RELEASED``/``IN_PROCESS``/``PARTIAL``) are auto-completed;
+    the cost record is (re)created via the existing idempotent logic.
+    """
+    order = session.get(ProductionOrder, batch.production_order_id)
+    if order is None:
+        return
+
+    current = ProductionOrderStatus(order.status)
+    if current not in (
+        ProductionOrderStatus.RELEASED,
+        ProductionOrderStatus.IN_PROCESS,
+        ProductionOrderStatus.PARTIAL,
+    ):
+        return
+
+    pending_stmt = (
+        select(Batch.id)
+        .where(
+            Batch.production_order_id == order.id,
+            Batch.status.in_(
+                [
+                    BatchStatus.CREATED.value,
+                    BatchStatus.IN_PRODUCTION.value,
+                    BatchStatus.REWORK.value,
+                ]
+            ),
+        )
+        .limit(1)
+    )
+    if session.execute(pending_stmt).scalar_one_or_none() is not None:
+        return
+
+    while current != ProductionOrderStatus.COMPLETED:
+        allowed = PRODUCTION_ORDER_TRANSITIONS.get(current, set())
+        if ProductionOrderStatus.COMPLETED in allowed:
+            step = ProductionOrderStatus.COMPLETED
+        elif ProductionOrderStatus.IN_PROCESS in allowed:
+            step = ProductionOrderStatus.IN_PROCESS
+        else:
+            logger.warning(
+                "Order %s cannot be auto-completed from %s", order.order_number, current.value
+            )
+            return
+        order.status = step.value
+        if step == ProductionOrderStatus.IN_PROCESS and order.actual_start is None:
+            order.actual_start = datetime.now(UTC)
+        if step == ProductionOrderStatus.COMPLETED:
+            order.actual_end = datetime.now(UTC)
+        current = step
+
+    _auto_create_cost_record(session, order)
+    logger.info(
+        "Order %s auto-completed after batch %s ended", order.order_number, batch.batch_number
+    )
 
 
 def _auto_create_cost_record(session, order) -> None:

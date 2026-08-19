@@ -883,6 +883,40 @@ estiver `COMPLETED`. Antes, uma inspeção podia ser resolvida com o batch ainda
 
 ---
 
+### TASK-027 — Auto-conclusão da Production Order no fim da produção (PP → CO)
+
+**Status:** DONE
+
+**Objetivo:** Fechar o fluxo PP-PI → CO automaticamente: quando o último batch de uma
+Production Order termina (`COMPLETED` ou `SCRAP`), a ordem avança para `COMPLETED` pela
+máquina de estados e o `CostRecord` é criado via evento — sem ação manual de fechamento.
+
+**Implementação:**
+- [x] `app/core/events.py` — novo `EVENT_BATCH_COMPLETED = "batch.completed"`
+- [x] `app/services/production_service.py` — `update_batch_status` publica o evento quando o
+  destino é `COMPLETED` ou `SCRAP` (ambos terminais), dentro da mesma transação (M-05)
+- [x] `app/services/integration.py` — novo handler `_auto_complete_order` (registrado):
+  - atua somente se a ordem está em `RELEASED`/`IN_PROCESS`/`PARTIAL`; ordens `CREATED`/`COMPLETED`/`CLOSED`/`DELIVERED` ficam inalteradas;
+  - verifica todos os batches da ordem: produção encerrada somente se nenhum batch estiver em `CREATED`/`IN_PRODUCTION`/`REWORK`;
+  - avança a ordem até `COMPLETED` reutilizando `PRODUCTION_ORDER_TRANSITIONS` (sem nova máquina de estados);
+  - preenche `actual_start` somente se vazio e `actual_end` ao concluir;
+  - reutiliza `_auto_create_cost_record` (idempotente, preserva rework/costing).
+
+**Testes:**
+- `pytest` → **290 passed** (era 283; +7: último batch COMPLETED fecha ordem + cost record;
+  dois batches (ordem fecha só no último); último SCRAP fecha ordem; ordem CREATED permanece;
+  batch REWORK pendente bloqueia fechamento; falha de handler → rollback total; idempotência
+  do reprocessamento do evento).
+- `compileall app/` → OK
+- Nenhuma migration (colunas `actual_start`/`actual_end`/`status` já existiam).
+
+**Critérios de aceite:**
+- [x] Evento publicado em `COMPLETED` e `SCRAP`
+- [x] Handler no padrão existente, transação única com rollback (M-05)
+- [x] QM, Dashboard, migrations e infra inalterados
+
+---
+
 ### Guia de Deploy — Oracle + Cloudflare + PostgreSQL
 
 #### Passo 1 — PostgreSQL na VPS
@@ -985,7 +1019,7 @@ explícito de backup/recuperação.
 
 ### Sequência Concluída
 
-As tasks de implementação foram concluídas. A validação operacional de produção permanece pendente na `TASK-021`; a `TASK-022` ajustou a configuração de produção para o PostgreSQL externo da VPS; a `TASK-023` registrou o provisionamento real do PostgreSQL na VPS (container, volume, schema, role sem superuser, `pg_hba.conf` scram-sha-256, porta 5432 somente loopback); a `TASK-024` concluiu as correções pós-auditoria (MEDIUM/LOW — CORS documentado, usuário `industrial_app` alinhado, cookie `Secure`, política de logs, rate limiter/JWT/SQLite documentados); a `TASK-025` implementou o ciclo de vida do Batch via API (`PATCH /api/production/batches/{batch_id}/status` com máquina de estados `BATCH_TRANSITIONS`, schema `BatchStatusUpdate`, `BatchRepository.update_status`, `ProductionService.update_batch_status` e 280 testes) e corrigiu o deadlock de `threading.Lock` → `RLock` em `app/database/connection.py`; a `TASK-026` vinculou o gate de qualidade ao ciclo de vida do Batch (resultados finais de inspeção exigem batch `COMPLETED`, com `BatchNotCompletedError` → 409, totalizando 283 testes). Pendências resolvidas antes do deploy:
+As tasks de implementação foram concluídas. A validação operacional de produção permanece pendente na `TASK-021`; a `TASK-022` ajustou a configuração de produção para o PostgreSQL externo da VPS; a `TASK-023` registrou o provisionamento real do PostgreSQL na VPS (container, volume, schema, role sem superuser, `pg_hba.conf` scram-sha-256, porta 5432 somente loopback); a `TASK-024` concluiu as correções pós-auditoria (MEDIUM/LOW — CORS documentado, usuário `industrial_app` alinhado, cookie `Secure`, política de logs, rate limiter/JWT/SQLite documentados); a `TASK-025` implementou o ciclo de vida do Batch via API (`PATCH /api/production/batches/{batch_id}/status` com máquina de estados `BATCH_TRANSITIONS`, schema `BatchStatusUpdate`, `BatchRepository.update_status`, `ProductionService.update_batch_status` e 280 testes) e corrigiu o deadlock de `threading.Lock` → `RLock` em `app/database/connection.py`; a `TASK-026` vinculou o gate de qualidade ao ciclo de vida do Batch (resultados finais de inspeção exigem batch `COMPLETED`, com `BatchNotCompletedError` → 409, totalizando 283 testes); a `TASK-027` fechou automaticamente o fluxo PP→CO — novo evento `batch.completed` publicado em `COMPLETED`/`SCRAP` e handler `_auto_complete_order` que conclui a Production Order (via `PRODUCTION_ORDER_TRANSITIONS`) e cria o `CostRecord` quando todos os batches terminam, totalizando 290 testes. Pendências resolvidas antes do deploy:
 - **I-84** — hadolint-action pinado a commit SHA
 - **I-86** — imagem base `slim` (glibc) mantida por compatibilidade
 

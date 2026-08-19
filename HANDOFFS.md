@@ -4,6 +4,48 @@ This file documents the completion of each task, serving as the source of truth 
 
 ---
 
+## TASK-027 — Auto-conclusão da Production Order no fim da produção (PP → CO)
+
+**Status:** DONE
+
+**Data:** 2026-08-19
+
+**IMPLEMENTADO:**
+- `EVENT_BATCH_COMPLETED` em `app/core/events.py`.
+- `ProductionService.update_batch_status` publica o evento quando o destino é `COMPLETED`
+  **ou** `SCRAP` (estados terminais para fins de fim de produção), na mesma transação.
+- Handler `_auto_complete_order` em `app/services/integration.py` (padrão dos handlers existentes):
+  - atua somente em ordens `RELEASED`/`IN_PROCESS`/`PARTIAL`;
+  - produção encerrada somente quando **nenhum** batch está em `CREATED`/`IN_PRODUCTION`/`REWORK`;
+  - avança a ordem até `COMPLETED` reutilizando `PRODUCTION_ORDER_TRANSITIONS` (sem nova máquina de estados);
+  - `actual_start` preenchido somente se vazio; `actual_end` ao concluir;
+  - reutiliza `_auto_create_cost_record` (idempotente) — preserva rework/costing.
+
+**ARQUIVOS ALTERADOS:**
+- `app/core/events.py`, `app/services/production_service.py`, `app/services/integration.py`
+- `tests/unit/test_integration.py`
+- `TASKS.md`, `HANDOFFS.md`
+
+**TESTES:**
+```
+290 passed (era 283; +7)
+```
+
+**VALIDAÇÃO:**
+- Último batch COMPLETED → ordem `COMPLETED` + `actual_end` + CostRecord criado.
+- Dois batches: ordem só conclui após o último; primeiro batch não conclui.
+- Último batch SCRAP → ordem concluída.
+- Ordem `CREATED` + batch COMPLETED → permanece `CREATED`.
+- Batch REWORK pendente → ordem não concluída; após rework→COMPLETED, conclui.
+- Falha no handler → rollback total (batch `IN_PRODUCTION`, ordem `IN_PROCESS`, sem CostRecord).
+- Reprocessamento do evento → idempotente (sem CostRecord duplicado, `actual_end` inalterado).
+- `compileall app/` OK. Nenhuma migration; QM, Dashboard e infra inalterados.
+
+**PRÓXIMA TAREFA:**
+TASK-021 — validação operacional em staging (alembic upgrade head + smoke test PP-PI→QM→CO contra PostgreSQL real).
+
+---
+
 ## TASK-026 — Gate de qualidade vinculado ao ciclo de vida do Batch (QM no COMPLETED)
 
 **Status:** DONE
