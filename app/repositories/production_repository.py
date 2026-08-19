@@ -14,6 +14,7 @@ from app.domain.entities import (
     ProductionResource,
     RecipeComponent,
 )
+from app.domain.production.batch import BatchStatus
 from app.domain.production.material import MaterialCreate, MaterialUpdate
 from app.repositories.base import BaseRepository
 
@@ -149,6 +150,18 @@ class BatchRepository(BaseRepository[Batch]):
     def get_by_number(self, batch_number: str) -> Batch | None:
         stmt = select(Batch).where(Batch.batch_number == batch_number)
         return self._session.execute(stmt).scalar_one_or_none()
+
+    def update_status(self, id: int, status: str | BatchStatus) -> Batch | None:
+        batch = self.get_by_id(id)
+        if batch is None:
+            return None
+        status_value = (
+            status.value if isinstance(status, BatchStatus) else BatchStatus(status).value
+        )
+        batch.status = status_value
+        self._session.flush()
+        self._session.refresh(batch)
+        return batch
 
     def get_by_order(self, order_id: int, skip: int = 0, limit: int = 100) -> list[Batch]:
         stmt = (

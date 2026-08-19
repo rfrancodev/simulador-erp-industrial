@@ -46,6 +46,10 @@ class BatchCreate(BatchBase):
     pass
 
 
+class BatchStatusUpdate(BaseModel):
+    status: BatchStatus
+
+
 class Batch(BatchBase):
     model_config = ConfigDict(from_attributes=True)
 

@@ -1,4 +1,4 @@
-"""Domain state machines for Production Order and Quality Inspection.
+"""Domain state machines for Production Order, Batch and Quality Inspection.
 
 Enforces legal status transitions so business flows cannot skip mandatory
 steps (M-14, M-15). The transition maps are the single source of truth and are
@@ -6,6 +6,7 @@ used by the service layer; the API layer never mutates status directly.
 """
 
 from app.core.exceptions import InvalidStateTransitionError
+from app.domain.production.batch import BatchStatus
 from app.domain.production.recipe import ProductionOrderStatus
 from app.domain.quality.inspection import InspectionStatus
 
@@ -16,6 +17,12 @@ PRODUCTION_ORDER_TRANSITIONS: dict[ProductionOrderStatus, set[ProductionOrderSta
     ProductionOrderStatus.PARTIAL: {ProductionOrderStatus.COMPLETED},
     ProductionOrderStatus.COMPLETED: {ProductionOrderStatus.CLOSED},
     ProductionOrderStatus.CLOSED: {ProductionOrderStatus.DELIVERED},
+}
+
+BATCH_TRANSITIONS: dict[BatchStatus, set[BatchStatus]] = {
+    BatchStatus.CREATED: {BatchStatus.IN_PRODUCTION},
+    BatchStatus.IN_PRODUCTION: {BatchStatus.COMPLETED, BatchStatus.REWORK, BatchStatus.SCRAP},
+    BatchStatus.REWORK: {BatchStatus.IN_PRODUCTION, BatchStatus.SCRAP},
 }
 
 INSPECTION_TRANSITIONS: dict[InspectionStatus, set[InspectionStatus]] = {

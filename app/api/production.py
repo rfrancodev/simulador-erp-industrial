@@ -10,6 +10,7 @@ from app.domain.common import PaginatedResponse, paginate
 from app.domain.production.batch import (
     Batch,
     BatchCreate,
+    BatchStatusUpdate,
     MaterialConsumption,
     MaterialConsumptionCreate,
     ProductionConfirmation,
@@ -155,6 +156,13 @@ def get_batch_by_number(batch_number: str, svc: ProductionService = Depends(_svc
 @router.post("/batches", response_model=Batch, status_code=201)
 def create_batch(data: BatchCreate, svc: ProductionService = Depends(_svc)):
     return svc.create_batch(data)
+
+
+@router.patch("/batches/{batch_id}/status", response_model=Batch)
+def update_batch_status(
+    batch_id: int, data: BatchStatusUpdate, svc: ProductionService = Depends(_svc)
+):
+    return svc.update_batch_status(batch_id, data.status)
 
 
 # ── Production Confirmations ──────────────────────────────────────────────

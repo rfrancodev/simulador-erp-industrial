@@ -3,6 +3,7 @@
 import pytest
 
 from app.core.exceptions import EntityNotFoundError, InvalidStateTransitionError
+from app.domain.production.batch import BatchStatus
 from app.domain.production.recipe import ProductionOrderStatus
 from app.domain.quality.inspection import (
     InspectionStatus,
@@ -10,6 +11,7 @@ from app.domain.quality.inspection import (
     QualityInspectionResult,
 )
 from app.domain.state_machine import (
+    BATCH_TRANSITIONS,
     INSPECTION_TRANSITIONS,
     PRODUCTION_ORDER_TRANSITIONS,
     validate_transition,
@@ -63,6 +65,64 @@ class TestProductionOrderStateMachine:
         svc = ProductionService(session)
         with pytest.raises(InvalidStateTransitionError):
             svc.update_order_status(sample_production_order.id, ProductionOrderStatus.IN_PROCESS)
+
+
+class TestBatchStateMachine:
+    def test_created_to_in_production(self, session, sample_batch):
+        svc = ProductionService(session)
+        updated = svc.update_batch_status(sample_batch.id, BatchStatus.IN_PRODUCTION)
+        assert updated.status == "IN_PRODUCTION"
+
+    def test_in_production_to_completed(self, session, sample_batch):
+        svc = ProductionService(session)
+        svc.update_batch_status(sample_batch.id, BatchStatus.IN_PRODUCTION)
+        updated = svc.update_batch_status(sample_batch.id, BatchStatus.COMPLETED)
+        assert updated.status == "COMPLETED"
+        assert updated.completed_at is not None
+
+    def test_in_production_to_rework(self, session, sample_batch):
+        svc = ProductionService(session)
+        svc.update_batch_status(sample_batch.id, BatchStatus.IN_PRODUCTION)
+        updated = svc.update_batch_status(sample_batch.id, BatchStatus.REWORK)
+        assert updated.status == "REWORK"
+
+    def test_in_production_to_scrap(self, session, sample_batch):
+        svc = ProductionService(session)
+        svc.update_batch_status(sample_batch.id, BatchStatus.IN_PRODUCTION)
+        updated = svc.update_batch_status(sample_batch.id, BatchStatus.SCRAP)
+        assert updated.status == "SCRAP"
+
+    def test_rework_to_in_production(self, session, sample_batch):
+        svc = ProductionService(session)
+        svc.update_batch_status(sample_batch.id, BatchStatus.IN_PRODUCTION)
+        svc.update_batch_status(sample_batch.id, BatchStatus.REWORK)
+        updated = svc.update_batch_status(sample_batch.id, BatchStatus.IN_PRODUCTION)
+        assert updated.status == "IN_PRODUCTION"
+        assert updated.completed_at is None
+
+    def test_skipping_in_production_rejected(self, session, sample_batch):
+        svc = ProductionService(session)
+        with pytest.raises(InvalidStateTransitionError):
+            svc.update_batch_status(sample_batch.id, BatchStatus.COMPLETED)
+
+    def test_completed_is_terminal(self, session, sample_batch):
+        svc = ProductionService(session)
+        svc.update_batch_status(sample_batch.id, BatchStatus.IN_PRODUCTION)
+        svc.update_batch_status(sample_batch.id, BatchStatus.COMPLETED)
+        with pytest.raises(InvalidStateTransitionError):
+            svc.update_batch_status(sample_batch.id, BatchStatus.IN_PRODUCTION)
+
+    def test_scrap_is_terminal(self, session, sample_batch):
+        svc = ProductionService(session)
+        svc.update_batch_status(sample_batch.id, BatchStatus.IN_PRODUCTION)
+        svc.update_batch_status(sample_batch.id, BatchStatus.SCRAP)
+        with pytest.raises(InvalidStateTransitionError):
+            svc.update_batch_status(sample_batch.id, BatchStatus.IN_PRODUCTION)
+
+    def test_batch_not_found(self, session):
+        svc = ProductionService(session)
+        with pytest.raises(EntityNotFoundError):
+            svc.update_batch_status(9999, BatchStatus.IN_PRODUCTION)
 
     def test_backwards_transition_rejected(self, session, sample_production_order):
         svc = ProductionService(session)

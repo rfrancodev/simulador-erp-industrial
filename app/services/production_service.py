@@ -36,6 +36,7 @@ from app.domain.entities import (
 )
 from app.domain.production.batch import (
     BatchCreate,
+    BatchStatus,
     MaterialConsumptionCreate,
     ProductionConfirmationCreate,
     ProductionResourceCreate,
@@ -48,6 +49,7 @@ from app.domain.production.recipe import (
     ProductionRecipeUpdate,
 )
 from app.domain.state_machine import (
+    BATCH_TRANSITIONS,
     PRODUCTION_ORDER_TRANSITIONS,
     validate_transition,
 )
@@ -224,6 +226,28 @@ class ProductionService:
             raise EntityNotFoundError("Batch", batch_number)
         return batch
 
+    def update_batch_status(self, id: int, status: BatchStatus) -> Batch:
+        batch = self.batches.get_by_id(id)
+        if batch is None:
+            raise EntityNotFoundError("Batch", id)
+
+        current = BatchStatus(batch.status)
+        validate_transition(BATCH_TRANSITIONS, current, status, entity="Batch")
+
+        if status == BatchStatus.COMPLETED and batch.completed_at is None:
+            batch.completed_at = datetime.now(UTC)
+        elif status != BatchStatus.COMPLETED:
+            batch.completed_at = None
+
+        try:
+            updated = self.batches.update_status(id, status)
+            self._session.commit()
+        except Exception:
+            self._session.rollback()
+            raise
+        logger.info("Batch %s status %s -> %s", updated.batch_number, current.value, status.value)
+        return updated
+
     def create_batch(self, data: BatchCreate) -> Batch:
         if self.orders.get_by_id(data.production_order_id) is None:
             raise EntityNotFoundError("ProductionOrder", data.production_order_id)
@@ -235,7 +259,7 @@ class ProductionService:
             production_order_id=data.production_order_id,
             resource_id=data.resource_id,
             planned_quantity=data.planned_quantity,
-            status="CREATED",
+            status=BatchStatus.CREATED.value,
         )
         try:
             created = self.batches.add(batch)

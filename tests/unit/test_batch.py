@@ -3,6 +3,7 @@
 from decimal import Decimal
 
 from app.domain.entities import Batch
+from app.domain.production.batch import BatchStatus
 from app.repositories.production_repository import (
     BatchRepository,
     ProductionResourceRepository,
@@ -15,6 +16,16 @@ class TestBatchRepository:
         found = repo.get_by_number("B20260810-001")
         assert found is not None
         assert found.id == sample_batch.id
+
+    def test_update_status(self, session, sample_batch):
+        repo = BatchRepository(session)
+        updated = repo.update_status(sample_batch.id, BatchStatus.IN_PRODUCTION)
+        assert updated is not None
+        assert updated.status == "IN_PRODUCTION"
+
+    def test_update_status_not_found(self, session):
+        repo = BatchRepository(session)
+        assert repo.update_status(9999, BatchStatus.IN_PRODUCTION) is None
 
     def test_get_by_number_not_found(self, session):
         repo = BatchRepository(session)

@@ -324,6 +324,7 @@ class TestBatchesApi:
         })
         assert resp.status_code == 201
         assert resp.json()["batch_number"] == "B-000001"
+        assert resp.json()["status"] == "CREATED"
 
     def test_create_batch_duplicate(self, client: TestClient):
         payload = {
@@ -370,6 +371,134 @@ class TestBatchesApi:
 
     def test_get_batch_not_found(self, client: TestClient):
         resp = client.get("/api/production/batches/number/NOBATCH")
+        assert resp.status_code == 404
+
+    def _create_batch(self, client: TestClient, batch_number: str) -> int:
+        resp = client.post("/api/production/batches", json={
+            "batch_number": batch_number,
+            "production_order_id": 1,
+            "resource_id": 1,
+            "planned_quantity": "1000",
+        })
+        assert resp.status_code == 201
+        assert resp.json()["status"] == "CREATED"
+        return resp.json()["id"]
+
+    def test_batch_status_created_to_in_production(self, client: TestClient):
+        batch_id = self._create_batch(client, "B-TO-INPROD")
+        resp = client.patch(
+            f"/api/production/batches/{batch_id}/status", json={"status": "IN_PRODUCTION"}
+        )
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "IN_PRODUCTION"
+
+    def test_batch_status_in_production_to_completed(self, client: TestClient):
+        batch_id = self._create_batch(client, "B-TO-COMP")
+        client.patch(
+            f"/api/production/batches/{batch_id}/status", json={"status": "IN_PRODUCTION"}
+        )
+        resp = client.patch(
+            f"/api/production/batches/{batch_id}/status", json={"status": "COMPLETED"}
+        )
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "COMPLETED"
+
+    def test_batch_status_in_production_to_rework(self, client: TestClient):
+        batch_id = self._create_batch(client, "B-TO-REWORK")
+        client.patch(
+            f"/api/production/batches/{batch_id}/status", json={"status": "IN_PRODUCTION"}
+        )
+        resp = client.patch(
+            f"/api/production/batches/{batch_id}/status", json={"status": "REWORK"}
+        )
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "REWORK"
+
+    def test_batch_status_in_production_to_scrap(self, client: TestClient):
+        batch_id = self._create_batch(client, "B-TO-SCRAP")
+        client.patch(
+            f"/api/production/batches/{batch_id}/status", json={"status": "IN_PRODUCTION"}
+        )
+        resp = client.patch(
+            f"/api/production/batches/{batch_id}/status", json={"status": "SCRAP"}
+        )
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "SCRAP"
+
+    def test_batch_status_rework_to_in_production(self, client: TestClient):
+        batch_id = self._create_batch(client, "B-REWORK-REOPEN")
+        client.patch(
+            f"/api/production/batches/{batch_id}/status", json={"status": "IN_PRODUCTION"}
+        )
+        client.patch(
+            f"/api/production/batches/{batch_id}/status", json={"status": "REWORK"}
+        )
+        resp = client.patch(
+            f"/api/production/batches/{batch_id}/status", json={"status": "IN_PRODUCTION"}
+        )
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "IN_PRODUCTION"
+
+    def test_batch_status_invalid_transition(self, client: TestClient):
+        batch_id = self._create_batch(client, "B-BAD-TRANS")
+        resp = client.patch(
+            f"/api/production/batches/{batch_id}/status", json={"status": "COMPLETED"}
+        )
+        assert resp.status_code == 409
+
+    def test_batch_completed_cannot_revert_to_in_production(self, client: TestClient):
+        batch_id = self._create_batch(client, "B-COMP-NO-REVERT")
+        client.patch(
+            f"/api/production/batches/{batch_id}/status", json={"status": "IN_PRODUCTION"}
+        )
+        client.patch(
+            f"/api/production/batches/{batch_id}/status", json={"status": "COMPLETED"}
+        )
+        resp = client.patch(
+            f"/api/production/batches/{batch_id}/status", json={"status": "IN_PRODUCTION"}
+        )
+        assert resp.status_code == 409
+
+    def test_batch_scrap_cannot_revert_to_in_production(self, client: TestClient):
+        batch_id = self._create_batch(client, "B-SCRAP-NRV")
+        client.patch(
+            f"/api/production/batches/{batch_id}/status", json={"status": "IN_PRODUCTION"}
+        )
+        client.patch(
+            f"/api/production/batches/{batch_id}/status", json={"status": "SCRAP"}
+        )
+        resp = client.patch(
+            f"/api/production/batches/{batch_id}/status", json={"status": "IN_PRODUCTION"}
+        )
+        assert resp.status_code == 409
+
+    def test_batch_completed_at_set_when_completed(self, client: TestClient):
+        batch_id = self._create_batch(client, "B-COMP-TS")
+        client.patch(
+            f"/api/production/batches/{batch_id}/status", json={"status": "IN_PRODUCTION"}
+        )
+        resp = client.patch(
+            f"/api/production/batches/{batch_id}/status", json={"status": "COMPLETED"}
+        )
+        assert resp.status_code == 200
+        assert resp.json()["completed_at"] is not None
+
+    def test_batch_completed_at_cleared_when_not_completed(self, client: TestClient):
+        batch_id = self._create_batch(client, "B-REOPEN-TS")
+        client.patch(
+            f"/api/production/batches/{batch_id}/status", json={"status": "IN_PRODUCTION"}
+        )
+        client.patch(
+            f"/api/production/batches/{batch_id}/status", json={"status": "REWORK"}
+        )
+        resp = client.patch(
+            f"/api/production/batches/{batch_id}/status", json={"status": "IN_PRODUCTION"}
+        )
+        assert resp.status_code == 200
+        assert resp.json()["completed_at"] is None
+
+    def test_update_batch_status_not_found(self, client: TestClient):
+        resp = client.patch("/api/production/batches/999/status", json={"status": "IN_PRODUCTION"})
         assert resp.status_code == 404
 
 

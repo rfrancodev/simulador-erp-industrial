@@ -781,6 +781,64 @@ segurança de 2026-08-15 (ver seção "Relatório de Auditoria de Segurança" em
 
 ---
 
+### TASK-025 — Ciclo de vida do Batch via API (status lifecycle) + fix deadlock
+**Status:** DONE
+
+**Objetivo:** Permitir que o Batch tenha seu ciclo de vida controlado pela API (em vez
+de permanecer sempre em `CREATED`) e corrigir o deadlock de lock não-reentrante na camada
+de banco.
+
+**Correção de deadlock:**
+- [x] `app/database/connection.py` — `threading.Lock()` → `threading.RLock()`
+  (`get_session()` chama `get_engine()` dentro do mesmo lock; `RLock` é reentrante e
+  elimina o bloqueio indefinido).
+
+**Máquina de estados do Batch (`app/domain/state_machine.py`):**
+- [x] `BATCH_TRANSITIONS` (coerente e restritiva):
+  - `CREATED → IN_PRODUCTION`
+  - `IN_PRODUCTION → COMPLETED | REWORK | SCRAP`
+  - `REWORK → IN_PRODUCTION | SCRAP`
+  - `COMPLETED` e `SCRAP` são estados terminais (sem transições de saída)
+
+**Schema:**
+- [x] `BatchStatusUpdate` (aceita `BatchStatus`, não strings literais) em `app/domain/production/batch.py`
+
+**Repository:**
+- [x] `BatchRepository.update_status(id, status)` — atualiza o status e retorna o Batch
+  (padrão análogo a `QualityInspectionRepository.update_result`)
+
+**Service (`app/services/production_service.py`):**
+- [x] `update_batch_status(id, status)` — busca o Batch, valida a transição via state machine,
+  aplica `completed_at` ao concluir, limpa `completed_at` ao retornar para estado não concluído,
+  persiste e retorna o Batch atualizado. **Não altera** `actual_quantity` nem `yield_percent`.
+- [x] `create_batch` passa a usar `BatchStatus.CREATED.value` (era o literal `"CREATED"`)
+
+**Endpoint:**
+- [x] `PATCH /api/production/batches/{batch_id}/status` — body `{"status": "IN_PRODUCTION"}`,
+  reutilizando os padrões de autenticação, tratamento de erros e dependências existentes.
+
+**Eventos:**
+- [x] `EVENT_BATCH_CREATED` mantido funcionando; nenhum evento novo criado
+  (batch completed não implementado nesta task).
+
+**Validação:**
+- `pytest` → **280 passed** (era 258; +22 testes: state machine, repository e API de status)
+- Endpoint validado via TestClient: `CREATED → IN_PRODUCTION → COMPLETED` (200, `completed_at`
+  preenchido); revert `COMPLETED → IN_PRODUCTION` → 409; `SCRAP → IN_PRODUCTION` → 409.
+- `/openapi.json` inclui a rota `PATCH /api/production/batches/{batch_id}/status`.
+- Nenhuma migration necessária (colunas `status`/`completed_at` já existiam).
+
+**Documentos atualizados:**
+- `TASKS.md` (esta task), `HANDOFFS.md`
+
+**Critérios de aceite:**
+- [x] Batch tem ciclo de vida controlado pela API com transições restritivas
+- [x] Transições inválidas retornam 409 (`InvalidStateTransitionError`)
+- [x] `completed_at` preenchido ao completar e limpo ao retornar para não concluído
+- [x] Production Order, Confirmations, Consumptions, Quality Inspection, Costing e Dashboard não alterados
+
+---
+
 ### Guia de Deploy — Oracle + Cloudflare + PostgreSQL
 
 #### Passo 1 — PostgreSQL na VPS
@@ -883,7 +941,7 @@ explícito de backup/recuperação.
 
 ### Sequência Concluída
 
-As tasks de implementação foram concluídas. A validação operacional de produção permanece pendente na `TASK-021`; a `TASK-022` ajustou a configuração de produção para o PostgreSQL externo da VPS; a `TASK-023` registrou o provisionamento real do PostgreSQL na VPS (container, volume, schema, role sem superuser, `pg_hba.conf` scram-sha-256, porta 5432 somente loopback); a `TASK-024` concluiu as correções pós-auditoria (MEDIUM/LOW — CORS documentado, usuário `industrial_app` alinhado, cookie `Secure`, política de logs, rate limiter/JWT/SQLite documentados). Pendências resolvidas antes do deploy:
+As tasks de implementação foram concluídas. A validação operacional de produção permanece pendente na `TASK-021`; a `TASK-022` ajustou a configuração de produção para o PostgreSQL externo da VPS; a `TASK-023` registrou o provisionamento real do PostgreSQL na VPS (container, volume, schema, role sem superuser, `pg_hba.conf` scram-sha-256, porta 5432 somente loopback); a `TASK-024` concluiu as correções pós-auditoria (MEDIUM/LOW — CORS documentado, usuário `industrial_app` alinhado, cookie `Secure`, política de logs, rate limiter/JWT/SQLite documentados); a `TASK-025` implementou o ciclo de vida do Batch via API (`PATCH /api/production/batches/{batch_id}/status` com máquina de estados `BATCH_TRANSITIONS`, schema `BatchStatusUpdate`, `BatchRepository.update_status`, `ProductionService.update_batch_status` e 280 testes) e corrigiu o deadlock de `threading.Lock` → `RLock` em `app/database/connection.py`. Pendências resolvidas antes do deploy:
 - **I-84** — hadolint-action pinado a commit SHA
 - **I-86** — imagem base `slim` (glibc) mantida por compatibilidade
 

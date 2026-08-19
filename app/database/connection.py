@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 
 _engine: Engine | None = None
 _SessionLocal: sessionmaker[Session] | None = None
-_lock = threading.Lock()
+_lock = threading.RLock()
 
 
 def get_database_url() -> str:

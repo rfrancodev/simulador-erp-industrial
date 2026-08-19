@@ -4,6 +4,50 @@ This file documents the completion of each task, serving as the source of truth 
 
 ---
 
+## TASK-025 — Ciclo de vida do Batch via API (status lifecycle) + fix deadlock
+
+**Status:** DONE
+
+**Data:** 2026-08-19
+
+**IMPLEMENTADO:**
+- **Máquina de estados:** `BATCH_TRANSITIONS` em `app/domain/state_machine.py` —
+  `CREATED → IN_PRODUCTION → {COMPLETED | REWORK | SCRAP}`; `REWORK → {IN_PRODUCTION | SCRAP}`;
+  `COMPLETED` e `SCRAP` são estados terminais.
+- **Schema:** `BatchStatusUpdate` (tipado com `BatchStatus`) em `app/domain/production/batch.py`.
+- **Repository:** `BatchRepository.update_status(id, status)` em `app/repositories/production_repository.py`.
+- **Service:** `ProductionService.update_batch_status(id, status)` — valida a transição via
+  state machine, aplica `completed_at` ao completar, limpa `completed_at` em estados não
+  concluídos, persiste e retorna o Batch. **Não altera** `actual_quantity`/`yield_percent`.
+- **Criação:** `create_batch` usa `BatchStatus.CREATED.value` (era o literal `"CREATED"`).
+- **Endpoint:** `PATCH /api/production/batches/{batch_id}/status` (auth/erros/dependências padrão).
+- **Fix deadlock:** `threading.Lock()` → `threading.RLock()` em `app/database/connection.py`
+  (`get_session()` reentra no lock via `get_engine()`).
+- **Eventos:** `EVENT_BATCH_CREATED` mantido; nenhum evento novo (batch completed não implementado).
+
+**ARQUIVOS ALTERADOS:**
+- `app/domain/state_machine.py`, `app/domain/production/batch.py`
+- `app/repositories/production_repository.py`, `app/services/production_service.py`
+- `app/api/production.py`, `app/database/connection.py`
+- `tests/unit/test_state_machine.py`, `tests/unit/test_batch.py`, `tests/unit/test_api_production.py`
+- `TASKS.md`, `HANDOFFS.md`
+
+**TESTES:**
+```
+280 passed (era 258; +22: state machine, repository e API de status de batch)
+```
+
+**VALIDAÇÃO:**
+- Endpoint validado via TestClient: `CREATED → IN_PRODUCTION → COMPLETED` (200, `completed_at` preenchido);
+  revert `COMPLETED → IN_PRODUCTION` → 409; `SCRAP → IN_PRODUCTION` → 409; batch inexistente → 404.
+- `/openapi.json` inclui `PATCH /api/production/batches/{batch_id}/status`.
+- Nenhuma migration necessária (colunas `status`/`completed_at` já existiam).
+
+**PRÓXIMA TAREFA:**
+TASK-021 — validação operacional em staging (alembic upgrade head + smoke test PP-PI→QM→CO contra PostgreSQL real) + remover superuser de `industrial_erp` na VPS.
+
+---
+
 ## TASK-024 — Correções pós-auditoria (MEDIUM/LOW)
 
 **Status:** DONE
