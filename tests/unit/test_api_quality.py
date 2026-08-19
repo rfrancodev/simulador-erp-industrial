@@ -87,6 +87,12 @@ def _setup_batch(client: TestClient, session: Session):
 # ── Quality Inspections ──────────────────────────────────────────────────────
 
 class TestInspectionsApi:
+    def _complete_batch(self, client: TestClient) -> None:
+        client.patch("/api/production/batches/1/status", json={"status": "IN_PRODUCTION"})
+        resp = client.patch("/api/production/batches/1/status", json={"status": "COMPLETED"})
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "COMPLETED"
+
     def test_batch_auto_creates_inspection(self, client: TestClient, _setup_batch):
         resp = client.get("/api/quality/inspections/batch/1")
         assert resp.status_code == 200
@@ -141,6 +147,7 @@ class TestInspectionsApi:
 
     def test_update_inspection_result(self, client: TestClient, _setup_batch):
         client.put("/api/quality/inspections/1/result", json={"inspection_status": "IN_PROGRESS"})
+        self._complete_batch(client)
         resp = client.put("/api/quality/inspections/1/result", json={
             "inspection_status": "PASSED",
             "pH": "4.21",
@@ -153,6 +160,19 @@ class TestInspectionsApi:
         assert body["inspection_status"] == "PASSED"
         assert body["pH"] == "4.21"
         assert body["alcohol_percent"] == "4.7"
+
+    def test_update_inspection_result_requires_completed_batch(self, client: TestClient, _setup_batch):
+        client.put("/api/quality/inspections/1/result", json={"inspection_status": "IN_PROGRESS"})
+        resp = client.put("/api/quality/inspections/1/result", json={"inspection_status": "PASSED"})
+        assert resp.status_code == 409
+        assert "COMPLETED" in resp.json()["detail"]
+
+    def test_update_inspection_result_requires_completed_batch_in_production(self, client: TestClient, _setup_batch):
+        client.put("/api/quality/inspections/1/result", json={"inspection_status": "IN_PROGRESS"})
+        client.patch("/api/production/batches/1/status", json={"status": "IN_PRODUCTION"})
+        resp = client.put("/api/quality/inspections/1/result", json={"inspection_status": "FAILED"})
+        assert resp.status_code == 409
+        assert "COMPLETED" in resp.json()["detail"]
 
     def test_update_inspection_result_invalid_transition(self, client: TestClient, _setup_batch):
         resp = client.put("/api/quality/inspections/1/result", json={"inspection_status": "PASSED"})
@@ -175,6 +195,7 @@ class TestInspectionsApi:
 
     def test_update_inspection_result_whitelist_protects_identity(self, client: TestClient, _setup_batch):
         client.put("/api/quality/inspections/1/result", json={"inspection_status": "IN_PROGRESS"})
+        self._complete_batch(client)
         resp = client.put("/api/quality/inspections/1/result", json={
             "inspection_status": "PASSED",
             "inspection_lot": "HACKED",

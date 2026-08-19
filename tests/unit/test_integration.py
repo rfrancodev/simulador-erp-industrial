@@ -8,7 +8,7 @@ from sqlalchemy import func, select
 from app.core.events import EVENT_BATCH_CREATED, event_bus
 from app.domain.costing.cost import CostRecordCreate
 from app.domain.entities import Batch
-from app.domain.production.batch import BatchCreate
+from app.domain.production.batch import BatchCreate, BatchStatus
 from app.domain.production.recipe import ProductionOrderStatus
 from app.domain.quality.inspection import InspectionStatus, QualityInspectionResult
 from app.repositories.costing_repository import CostRecordRepository
@@ -127,6 +127,9 @@ class TestReworkIntegration:
         batch = _create_batch(service, sample_production_order.id, sample_resource.id, "B-REWORK")
         inspection = QualityInspectionRepository(session).get_by_batch(batch.id)
 
+        service.update_batch_status(batch.id, BatchStatus.IN_PRODUCTION)
+        service.update_batch_status(batch.id, BatchStatus.COMPLETED)
+
         qsvc = QualityService(session)
         qsvc.update_inspection_result(
             inspection.id, QualityInspectionResult(inspection_status=InspectionStatus.IN_PROGRESS)
@@ -145,6 +148,9 @@ class TestReworkIntegration:
         service = ProductionService(session)
         batch = _create_batch(service, sample_production_order.id, sample_resource.id, "B-REWORK2")
         inspection = QualityInspectionRepository(session).get_by_batch(batch.id)
+
+        service.update_batch_status(batch.id, BatchStatus.IN_PRODUCTION)
+        service.update_batch_status(batch.id, BatchStatus.COMPLETED)
 
         qsvc = QualityService(session)
         qsvc.update_inspection_result(

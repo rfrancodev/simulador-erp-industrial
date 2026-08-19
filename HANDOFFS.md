@@ -4,6 +4,37 @@ This file documents the completion of each task, serving as the source of truth 
 
 ---
 
+## TASK-026 — Gate de qualidade vinculado ao ciclo de vida do Batch (QM no COMPLETED)
+
+**Status:** DONE
+
+**Data:** 2026-08-19
+
+**IMPLEMENTADO:**
+- `BatchNotCompletedError` em `app/core/exceptions.py` + handler **409** em `app/main.py`.
+- `QualityService.update_inspection_result`: resultados finais (`PASSED`/`FAILED`/`REWORK`/`SCRAP`)
+  exigem `batch.status == COMPLETED`; `IN_PROGRESS` continua permitido — gate QM no batch produzido.
+- Fecha o fluxo `Batch → Quality Inspection` do plano/06 (inspeção só após produção).
+
+**ARQUIVOS ALTERADOS:**
+- `app/core/exceptions.py`, `app/main.py`, `app/services/quality_service.py`
+- `tests/unit/test_api_quality.py`, `tests/unit/test_state_machine.py`, `tests/unit/test_integration.py`
+- `TASKS.md`, `HANDOFFS.md`
+
+**TESTES:**
+```
+283 passed (era 280; +3: rejeição em CREATED, rejeição em IN_PRODUCTION, state machine)
+```
+
+**VALIDAÇÃO:**
+- End-to-end via TestClient: `PASSED` em batch `CREATED` → 409; `IN_PRODUCTION` → 409; `COMPLETED` → 200.
+- Nenhuma migration; Production Order, Costing, Dashboard e infra inalterados.
+
+**PRÓXIMA TAREFA:**
+TASK-021 — validação operacional em staging (alembic upgrade head + smoke test PP-PI→QM→CO contra PostgreSQL real).
+
+---
+
 ## TASK-025 — Ciclo de vida do Batch via API (status lifecycle) + fix deadlock
 
 **Status:** DONE
@@ -44,7 +75,7 @@ This file documents the completion of each task, serving as the source of truth 
 - Nenhuma migration necessária (colunas `status`/`completed_at` já existiam).
 
 **PRÓXIMA TAREFA:**
-TASK-021 — validação operacional em staging (alembic upgrade head + smoke test PP-PI→QM→CO contra PostgreSQL real) + remover superuser de `industrial_erp` na VPS.
+TASK-021 — validação operacional em staging (alembic upgrade head + smoke test PP-PI→QM→CO contra PostgreSQL real).
 
 ---
 
@@ -69,8 +100,9 @@ TASK-021 — validação operacional em staging (alembic upgrade head + smoke te
 - `TASKS.md`, `auditoria.md`, `HANDOFFS.md`
 
 **ACHADO ADICIONAL:**
-- Role `industrial_erp` ainda SUPERUSER no PG real. Recomendação registrada na TASK-023:
-  `ALTER ROLE industrial_erp NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION;`
+- Role `industrial_erp` é a **bootstrap superuser** do PG real; a remoção de SUPERUSER **não é
+  aplicável** (`DETAIL: The bootstrap user must have the SUPERUSER attribute.`) — ver TASK-023.
+  Mitigação: a aplicação usa `industrial_app` (não-superuser).
 
 **TESTES:**
 ```
@@ -79,7 +111,7 @@ TASK-021 — validação operacional em staging (alembic upgrade head + smoke te
 - `compileall` OK · `docker compose -f docker-compose.prod.yml config` OK · `typecheck` OK
 
 **PRÓXIMA TAREFA:**
-TASK-021 — validação operacional em staging (alembic upgrade head + smoke test PP-PI→QM→CO contra PostgreSQL real) + remover superuser de `industrial_erp` na VPS.
+TASK-021 — validação operacional em staging (alembic upgrade head + smoke test PP-PI→QM→CO contra PostgreSQL real).
 
 ---
 
@@ -94,10 +126,22 @@ TASK-021 — validação operacional em staging (alembic upgrade head + smoke te
 - Volume persistente `industrial_erp_postgres_data` (não remover em deploy normal).
 - Banco `industrial_erp`, usuário da aplicação `industrial_erp`, schema `industrial_erp` (além do `public`).
 - Binding `127.0.0.1:5432` (somente loopback) — verificado com `docker inspect`; NÃO exposto à Internet.
-- Role endurecida: `ALTER ROLE industrial_erp NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION;`.
+- Role da aplicação endurecida: `ALTER ROLE industrial_app NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION;`.
 - Autenticação `scram-sha-256` no `pg_hba.conf` (`local`/`127.0.0.1`/`::1`), com backup `.bak` + `pg_reload_conf`.
 - A API usa `network_mode: host` e bind `127.0.0.1:8000` — acessível somente via reverse proxy/Cloudflare.
-- `DATABASE_URL=postgresql://industrial_erp:<senha>@127.0.0.1:5432/industrial_erp` e `SECRET_KEY` (≥32 bytes) somente via ambiente.
+- `DATABASE_URL=postgresql://industrial_app:<senha>@127.0.0.1:5432/industrial_erp` e `SECRET_KEY` (≥32 bytes) somente via ambiente.
+
+**BOOTSTRAP SUPERUSER (2026-08-19) — remoção de SUPERUSER de `industrial_erp` NÃO aplicável:**
+- `industrial_erp` é a **bootstrap superuser** do cluster (criada no bootstrap do container).
+- Executado como `industrial_admin`, `ALTER ROLE industrial_erp NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION`
+  falha com `permission denied to alter role` / `DETAIL: The bootstrap user must have the SUPERUSER attribute.`
+- O PostgreSQL não permite remover SUPERUSER da bootstrap user sem recriar o cluster (fora de escopo).
+- **Mitigação registrada:**
+  1. A aplicação utiliza `industrial_app`, não `industrial_erp`.
+  2. `industrial_app` não possui atributos administrativos.
+  3. `industrial_erp` permanece exclusivamente como bootstrap/admin role.
+  4. `industrial_admin` permanece como role administrativa separada.
+  5. Não é necessária migration de banco.
 
 **VALIDAÇÃO DE INTEGRAÇÃO (2026-08-15):**
 - `pytest` → **257 passed** (venv rebuilt para Python 3.11; o `.venv` original apontava binário 3.11 com pacotes de 3.10).

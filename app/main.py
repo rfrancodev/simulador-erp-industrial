@@ -13,6 +13,7 @@ from app.api.dashboard import router as dashboard_router
 from app.api.production import router as production_router
 from app.api.quality import router as quality_router
 from app.core.exceptions import (
+    BatchNotCompletedError,
     ComponentUnitMismatchError,
     DatabaseIntegrityError,
     DomainError,
@@ -83,6 +84,11 @@ async def handle_dependencies(request, exc: EntityHasDependenciesError):
 
 @app.exception_handler(InvalidStateTransitionError)
 async def handle_invalid_transition(request, exc: InvalidStateTransitionError):
+    return JSONResponse(status_code=409, content={"detail": str(exc)})
+
+
+@app.exception_handler(BatchNotCompletedError)
+async def handle_batch_not_completed(request, exc: BatchNotCompletedError):
     return JSONResponse(status_code=409, content={"detail": str(exc)})
 
 

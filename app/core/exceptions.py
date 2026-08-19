@@ -66,5 +66,15 @@ class InvalidStateTransitionError(DomainError):
         )
 
 
+class BatchNotCompletedError(DomainError):
+    def __init__(self, batch_id: int, current_status: str) -> None:
+        self.batch_id = batch_id
+        self.current_status = current_status
+        super().__init__(
+            f"Batch {batch_id} is not COMPLETED (current status: {current_status!r}). "
+            "Final quality inspection results require the batch to be COMPLETED."
+        )
+
+
 def _state_name(value) -> str:
     return getattr(value, "value", str(value))

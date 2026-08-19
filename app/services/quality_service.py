@@ -15,11 +15,13 @@ from sqlalchemy.orm import Session
 
 from app.core.events import EVENT_INSPECTION_FAILED, event_bus
 from app.core.exceptions import (
+    BatchNotCompletedError,
     DatabaseIntegrityError,
     DuplicateEntityError,
     EntityNotFoundError,
 )
 from app.domain.entities import NonConformity, QualityInspection
+from app.domain.production.batch import BatchStatus
 from app.domain.quality.inspection import (
     InspectionStatus,
     NonConformityCreate,
@@ -102,6 +104,18 @@ class QualityService:
         validate_transition(
             INSPECTION_TRANSITIONS, current, target, entity="QualityInspection"
         )
+
+        # Final quality results (PASS/FAIL/REWORK/SCRAP) only apply to a
+        # produced batch — the QM gate is tied to the batch lifecycle (TASK-026).
+        if target in (
+            InspectionStatus.PASSED,
+            InspectionStatus.FAILED,
+            InspectionStatus.REWORK,
+            InspectionStatus.SCRAP,
+        ):
+            batch = self.batches.get_by_id(inspection.batch_id)
+            if batch.status != BatchStatus.COMPLETED.value:
+                raise BatchNotCompletedError(inspection.batch_id, batch.status)
 
         result_data = data.model_dump(exclude_unset=True)
         status = result_data.pop("inspection_status")

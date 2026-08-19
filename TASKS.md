@@ -613,12 +613,26 @@ servidor. Qualquer alteração de código/deploy deve respeitar estes fatos.
 
 > **Nota (2026-08-15):** a auditoria contra o PostgreSQL real identificou 3 roles:
 > - `industrial_app` — `usesuper=false, usecreatedb=false` → **usuário da aplicação** (correto).
-> - `industrial_erp` — `usesuper=true, usecreatedb=true` → ainda SUPERUSER; não deve ser usado pela aplicação.
+> - `industrial_erp` — `usesuper=true, usecreatedb=true` → **bootstrap superuser** do cluster; usado apenas como role administrativa/bootstrap, nunca pela aplicação.
 > - `industrial_admin` — `usesuper=true, usecreatedb=true` → administrativo (DBA), manter fora da aplicação.
 >
-> O `.env` da VPS aponta para `industrial_app`. Recomendação: remover privilégios
-> de superuser de `industrial_erp` (`ALTER ROLE industrial_erp NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION;`)
-> ou mantê-lo apenas como role administrativa não utilizada pela aplicação.
+> O `.env` da VPS aponta para `industrial_app`.
+
+> **Nota (2026-08-19):** a remoção de SUPERUSER de `industrial_erp` **não é aplicável** ao
+> cluster atual: `industrial_erp` é a **bootstrap superuser** do PostgreSQL (criada no
+> bootstrap do container). Executado como `industrial_admin`, o comando falha:
+> ```
+> ALTER ROLE industrial_erp NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION;
+> ERROR:  permission denied to alter role
+> DETAIL:  The bootstrap user must have the SUPERUSER attribute.
+> ```
+> O PostgreSQL exige que a bootstrap superuser mantenha SUPERUSER — removê-lo exigiria
+> recriar o cluster (fora de escopo). **Mitigação registrada:**
+> 1. A aplicação utiliza `industrial_app`, não `industrial_erp`.
+> 2. `industrial_app` não possui atributos administrativos.
+> 3. `industrial_erp` permanece exclusivamente como bootstrap/admin role.
+> 4. `industrial_admin` permanece como role administrativa separada.
+> 5. Não é necessária migration de banco.
 
 Comando utilizado:
 ```bash
@@ -742,7 +756,8 @@ segurança de 2026-08-15 (ver seção "Relatório de Auditoria de Segurança" em
   Auditado o PG real (3 roles): `industrial_app` (não-superuser) é o usuário real
   da aplicação; `industrial_erp` e `industrial_admin` ainda são SUPERUSER. Docs
   (TASK-023, Guia de Deploy, README, RUNBOOK, `.env.example`) alinhados para
-  `industrial_app`. Registrada recomendação de remover superuser de `industrial_erp`.
+  `industrial_app`. A recomendação de remover superuser de `industrial_erp` foi
+  encerrada como **não aplicável** (é a bootstrap superuser — ver TASK-023).
 
 **LOW:**
 - [x] **LOW-01 — Rate limiter:** Nota no `README.md` e `docs/ARCHITECTURE.md`
@@ -836,6 +851,35 @@ de banco.
 - [x] Transições inválidas retornam 409 (`InvalidStateTransitionError`)
 - [x] `completed_at` preenchido ao completar e limpo ao retornar para não concluído
 - [x] Production Order, Confirmations, Consumptions, Quality Inspection, Costing e Dashboard não alterados
+
+---
+
+### TASK-026 — Gate de qualidade vinculado ao ciclo de vida do Batch (QM no COMPLETED)
+**Status:** DONE
+
+**Objetivo:** Fechar a cadeia PP-PI → QM: resultados finais de inspeção de qualidade
+(`PASSED`/`FAILED`/`REWORK`/`SCRAP`) só podem ser registrados quando o batch vinculado
+estiver `COMPLETED`. Antes, uma inspeção podia ser resolvida com o batch ainda em
+`CREATED`/`IN_PRODUCTION` — quebrando o fluxo `Batch → Quality Inspection` do plano/06.
+
+**Implementação:**
+- [x] `app/core/exceptions.py` — novo `BatchNotCompletedError` (DomainError)
+- [x] `app/main.py` — exception handler → **409**
+- [x] `app/services/quality_service.py` — em `update_inspection_result`, quando o destino está
+  em `{PASSED, FAILED, REWORK, SCRAP}`, exige `batch.status == COMPLETED`; `IN_PROGRESS` permanece permitido.
+
+**Validação:**
+- `pytest` → **283 passed** (era 280; +3 testes: rejeição em CREATED, rejeição em IN_PRODUCTION, state machine)
+- End-to-end via TestClient: `PASSED` em batch `CREATED` → 409; em `IN_PRODUCTION` → 409; em `COMPLETED` → 200.
+- Nenhuma migration necessária; Production Order, Costing, Dashboard e infra inalterados.
+
+**Documentos atualizados:**
+- `TASKS.md` (esta task), `HANDOFFS.md`
+
+**Critérios de aceite:**
+- [x] Resultado final de inspeção exige batch `COMPLETED`
+- [x] Erro retornado como 409 com mensagem clara
+- [x] Fluxos existentes (simulação, dashboard, costing) inalterados
 
 ---
 
@@ -941,7 +985,7 @@ explícito de backup/recuperação.
 
 ### Sequência Concluída
 
-As tasks de implementação foram concluídas. A validação operacional de produção permanece pendente na `TASK-021`; a `TASK-022` ajustou a configuração de produção para o PostgreSQL externo da VPS; a `TASK-023` registrou o provisionamento real do PostgreSQL na VPS (container, volume, schema, role sem superuser, `pg_hba.conf` scram-sha-256, porta 5432 somente loopback); a `TASK-024` concluiu as correções pós-auditoria (MEDIUM/LOW — CORS documentado, usuário `industrial_app` alinhado, cookie `Secure`, política de logs, rate limiter/JWT/SQLite documentados); a `TASK-025` implementou o ciclo de vida do Batch via API (`PATCH /api/production/batches/{batch_id}/status` com máquina de estados `BATCH_TRANSITIONS`, schema `BatchStatusUpdate`, `BatchRepository.update_status`, `ProductionService.update_batch_status` e 280 testes) e corrigiu o deadlock de `threading.Lock` → `RLock` em `app/database/connection.py`. Pendências resolvidas antes do deploy:
+As tasks de implementação foram concluídas. A validação operacional de produção permanece pendente na `TASK-021`; a `TASK-022` ajustou a configuração de produção para o PostgreSQL externo da VPS; a `TASK-023` registrou o provisionamento real do PostgreSQL na VPS (container, volume, schema, role sem superuser, `pg_hba.conf` scram-sha-256, porta 5432 somente loopback); a `TASK-024` concluiu as correções pós-auditoria (MEDIUM/LOW — CORS documentado, usuário `industrial_app` alinhado, cookie `Secure`, política de logs, rate limiter/JWT/SQLite documentados); a `TASK-025` implementou o ciclo de vida do Batch via API (`PATCH /api/production/batches/{batch_id}/status` com máquina de estados `BATCH_TRANSITIONS`, schema `BatchStatusUpdate`, `BatchRepository.update_status`, `ProductionService.update_batch_status` e 280 testes) e corrigiu o deadlock de `threading.Lock` → `RLock` em `app/database/connection.py`; a `TASK-026` vinculou o gate de qualidade ao ciclo de vida do Batch (resultados finais de inspeção exigem batch `COMPLETED`, com `BatchNotCompletedError` → 409, totalizando 283 testes). Pendências resolvidas antes do deploy:
 - **I-84** — hadolint-action pinado a commit SHA
 - **I-86** — imagem base `slim` (glibc) mantida por compatibilidade
 
@@ -949,7 +993,10 @@ Fora do escopo (atualização futura, separada do projeto):
 - **Automação externa n8n/Power BI** (`plano/11`)
 
 Próximo passo: executar a `TASK-021` em ambiente de staging — `alembic upgrade head`
-e smoke test PP-PI→QM→CO contra o PostgreSQL real (`industrial-erp-postgres`) antes do deploy público. Pendência de infra recomendada: remover privilégios de superuser da role `industrial_erp` no PG (ver TASK-023).
+e smoke test PP-PI→QM→CO contra o PostgreSQL real (`industrial-erp-postgres`) antes do
+deploy público. A pendência de remover SUPERUSER de `industrial_erp` foi encerrada como
+**não aplicável**: `industrial_erp` é a bootstrap superuser do cluster (ver TASK-023).
+Mitigação: a aplicação usa `industrial_app` (não-superuser).
 
 ---
 

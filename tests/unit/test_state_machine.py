@@ -2,7 +2,11 @@
 
 import pytest
 
-from app.core.exceptions import EntityNotFoundError, InvalidStateTransitionError
+from app.core.exceptions import (
+    BatchNotCompletedError,
+    EntityNotFoundError,
+    InvalidStateTransitionError,
+)
 from app.domain.production.batch import BatchStatus
 from app.domain.production.recipe import ProductionOrderStatus
 from app.domain.quality.inspection import (
@@ -150,6 +154,11 @@ class TestInspectionStateMachine:
         svc = QualityService(session)
         return svc.create_inspection(QualityInspectionCreate(batch_id=sample_batch.id, inspection_lot=lot))
 
+    def _complete_batch(self, session, sample_batch) -> None:
+        svc = ProductionService(session)
+        svc.update_batch_status(sample_batch.id, BatchStatus.IN_PRODUCTION)
+        svc.update_batch_status(sample_batch.id, BatchStatus.COMPLETED)
+
     def test_pending_to_passed_rejected(self, session, sample_batch):
         svc = QualityService(session)
         inspection = self._create_inspection(session, sample_batch)
@@ -166,6 +175,7 @@ class TestInspectionStateMachine:
             inspection.id,
             QualityInspectionResult(inspection_status=InspectionStatus.IN_PROGRESS),
         )
+        self._complete_batch(session, sample_batch)
         updated = svc.update_inspection_result(
             inspection.id,
             QualityInspectionResult(
@@ -177,6 +187,19 @@ class TestInspectionStateMachine:
         assert updated.inspection_status == "PASSED"
         assert updated.result_date is not None
 
+    def test_final_result_rejected_when_batch_not_completed(self, session, sample_batch):
+        svc = QualityService(session)
+        inspection = self._create_inspection(session, sample_batch)
+        svc.update_inspection_result(
+            inspection.id,
+            QualityInspectionResult(inspection_status=InspectionStatus.IN_PROGRESS),
+        )
+        with pytest.raises(BatchNotCompletedError):
+            svc.update_inspection_result(
+                inspection.id,
+                QualityInspectionResult(inspection_status=InspectionStatus.PASSED),
+            )
+
     def test_failed_to_passed_rejected(self, session, sample_batch):
         svc = QualityService(session)
         inspection = self._create_inspection(session, sample_batch)
@@ -184,6 +207,7 @@ class TestInspectionStateMachine:
             inspection.id,
             QualityInspectionResult(inspection_status=InspectionStatus.IN_PROGRESS),
         )
+        self._complete_batch(session, sample_batch)
         svc.update_inspection_result(
             inspection.id,
             QualityInspectionResult(inspection_status=InspectionStatus.FAILED),
@@ -201,6 +225,7 @@ class TestInspectionStateMachine:
             inspection.id,
             QualityInspectionResult(inspection_status=InspectionStatus.IN_PROGRESS),
         )
+        self._complete_batch(session, sample_batch)
         svc.update_inspection_result(
             inspection.id,
             QualityInspectionResult(inspection_status=InspectionStatus.FAILED),
