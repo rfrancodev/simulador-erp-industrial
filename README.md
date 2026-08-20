@@ -169,8 +169,8 @@ flowchart TB
 ## API — Swagger documentation
 
 The full API is self-documented and interactive. Start the project and open
-[http://localhost:8000/docs](http://localhost:8000/docs) (Swagger UI) to test
-every endpoint live.
+[https://erp.francorafael.com/docs](https://erp.francorafael.com/docs)
+(Swagger UI) to test every endpoint live.
 
 ### Auth `/api/auth`
 
@@ -474,8 +474,8 @@ flowchart TB
 ## API — Documentação Swagger
 
 Toda a API é auto-documentada e interativa. Inicie o projeto e abra
-[http://localhost:8000/docs](http://localhost:8000/docs) (Swagger UI) para
-testar cada endpoint ao vivo.
+[https://erp.francorafael.com/docs](https://erp.francorafael.com/docs)
+(Swagger UI) para testar cada endpoint ao vivo.
 
 ### Auth `/api/auth`
 
