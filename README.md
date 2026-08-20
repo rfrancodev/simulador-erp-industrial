@@ -45,20 +45,20 @@ areas of a company depend on each other:
 
 ## Why this project stands out
 
-This is **not a generic CRUD / to-do list**. It is a domain-rich, full-stack
-system with real engineering problems. Highlights at a glance:
+I deliberately avoided building yet another CRUD or to-do list app. I wanted
+something that exercises real, hard engineering problems. A few highlights:
 
-- **Real business domain.** It models rules that actually exist in industry
-  (SAP-inspired PP-PI / QM / CO). It shows you don't just "write code" — you
-  understand business.
+- **Real business domain.** The rules come from the industry (SAP-inspired
+  PP-PI / QM / CO). For me, code only makes sense when I understand the
+  business behind it.
 - **Modules that talk to each other automatically.** When a batch is produced,
   the system *itself* creates a quality inspection; when production finishes,
   it *itself* creates the cost record; a failed inspection *itself* adds rework
-  cost. This is done with an event-driven design — no module depends directly
-  on another.
-- **Business rules that cannot be skipped.** The system has "state machines"
+  cost. I went with an event-driven design so no module depends directly on
+  another.
+- **Business rules that cannot be skipped.** I implemented "state machines"
   that forbid illegal flows (e.g. you cannot close an order that was never
-  completed). Rules live in one place and the whole app obeys them.
+  completed). The rules live in one place and the whole app obeys them.
 - **Security with roles.** JWT authentication, three access levels
   (admin / operator / viewer), rate limiting and account lockout.
 - **Serious about quality.** ~9,500 lines of code with unit + integration
@@ -349,19 +349,19 @@ de uma empresa dependem umas das outras:
 
 ## Por que este projeto se destaca
 
-Este **não é um CRUD genérico / lista de tarefas**. É um sistema full-stack
-com domínio de negócio rico e problemas reais de engenharia. Destaques à
-primeira vista:
+Evitei de propósito fazer mais um CRUD genérico ou lista de tarefas. Eu queria
+um sistema full-stack com domínio de negócio rico e problemas reais de
+engenharia. Alguns destaques:
 
-- **Domínio de negócio real.** Modela regras que existem de verdade na
-  indústria (inspiradas em SAP PP-PI / QM / CO). Mostra que você não apenas
-  "escreve código" — você entende o negócio.
+- **Domínio de negócio real.** As regras vêm da indústria (inspiradas em SAP
+  PP-PI / QM / CO). Para mim, código só faz sentido quando eu entendo o negócio
+  por trás dele.
 - **Módulos que conversam entre si automaticamente.** Quando um lote é
   produzido, o sistema *sozinho* cria uma inspeção de qualidade; quando a
   produção termina, ele *sozinho* cria o registro de custo; uma inspeção
-  reprovada *sozinha* adiciona custo de retrabalho. Isso é feito com design
-  orientado a eventos — nenhum módulo depende diretamente de outro.
-- **Regras de negócio que não podem ser puladas.** O sistema usa "máquinas de
+  reprovada *sozinha* adiciona custo de retrabalho. Usei design orientado a
+  eventos para que nenhum módulo dependa diretamente de outro.
+- **Regras de negócio que não podem ser puladas.** Implementei "máquinas de
   estado" que proíbem fluxos ilegais (ex.: não dá para encerrar uma ordem que
   nunca foi concluída). As regras ficam em um único lugar e todo o app obedece.
 - **Segurança com papéis.** Autenticação JWT, três níveis de acesso
