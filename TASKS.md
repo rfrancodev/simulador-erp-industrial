@@ -540,25 +540,25 @@ TASK-020 → CI/hardening (multi-stage build, hadolint, docker compose config)
 **Checklist de execução:**
 - [x] Configurar `SECRET_KEY` forte via secret manager ou variável protegida, sem usar valor de exemplo. (validado em código: falha na inicialização se ausente/fraco)
 - [ ] Configurar `TRUSTED_PROXY_IPS` com o IP/CIDR real do proxy imediato. (depende do ambiente de deploy)
-- [ ] Confirmar TLS/HTTPS no Cloudflare ou proxy reverso. (depende do ambiente de deploy)
+- [x] Confirmar TLS/HTTPS no Cloudflare ou proxy reverso. (validado em 2026-08-20 — acesso/login via HTTPS em `erp.francorafael.com`)
 - [ ] Confirmar que a porta `8000` não é acessível externamente e está limitada ao proxy/Tunnel. (configuração aplicada; validação externa pendente)
 - [x] PostgreSQL externo provisionado na VPS: container `industrial-erp-postgres` (postgres:16), volume persistente `industrial_erp_postgres_data`, banco `industrial_erp`, usuário da aplicação `industrial_app`. (TASK-023)
 - [x] Usuário da aplicação sem privilégios administrativos (`NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION`). (TASK-023) — verificado no PG real: `industrial_app` = `usesuper=False, usecreatedb=False`.
 - [x] Autenticação endurecida: `pg_hba.conf` com `scram-sha-256` para `local`/`127.0.0.1`/`::1`, backup `.bak` + `pg_reload_conf`. (TASK-023)
 - [x] Porta `5432` limitada ao loopback `127.0.0.1` — verificado com `docker inspect`. (TASK-023)
 - [ ] Executar `alembic upgrade head` contra o PostgreSQL real. (smoke test com SQLite: migrações aplicadas; dialeto PostgreSQL validado via offline SQL; contra o banco real pendente)
-- [x] Criar o usuário admin inicial e validar login, expiração e revogação de token.
+- [x] Criar o usuário admin inicial e validar login, expiração e revogação de token. (produção: `audit_admin` ativo, role `admin`; login no dashboard validado em 2026-08-20)
 - [x] Validar `/health`, APIs protegidas, dashboard autenticado e bloqueio de acesso anônimo.
-- [x] Integrar o envio do Bearer token no fluxo visual do dashboard (login/logout com cookie HttpOnly).
+- [x] Integrar o envio do Bearer token no fluxo visual do dashboard (login/logout com cookie HttpOnly). (validado em produção em 2026-08-20)
 - [x] Validação de integração das configurações executada (2026-08-15): engine postgresql/psycopg2 com pool, Alembic via `DATABASE_URL`, guarda de `SECRET_KEY` (32+ bytes), segredos fora do Git — ver TASK-023.
 - [ ] Executar smoke test PP-PI → QM → CO em PostgreSQL real. (validado em SQLite; infraestrutura real disponível — executar no staging)
 - [ ] Documentar backup, restauração e procedimento de rollback do deploy. (procedimento base no Guia de Deploy; detalhar dump/restore do volume)
 
 **Critérios de aceite:**
 - [x] Deploy de staging validado localmente (smoke test) sem exposição direta da porta 8000.
-- [ ] HTTPS funcional no domínio público.
+- [x] HTTPS funcional no domínio público. (validado em 2026-08-20 — login no dashboard via HTTPS em `erp.francorafael.com`)
 - [ ] Proxy identifica clientes reais sem aceitar spoofing de headers.
-- [x] Login, RBAC, dashboard e integrações PP-PI/QM/CO validados manualmente.
+- [x] Login, RBAC, dashboard e integrações PP-PI/QM/CO validados manualmente. (dashboard autenticado validado em produção 2026-08-20)
 - [x] Evidências e comandos executados registrados em `auditoria.md`.
 
 **Riscos:** Topologia do proxy, regras de firewall, credenciais PostgreSQL, TLS e fluxo de autenticação do frontend ainda dependem do ambiente de deploy.

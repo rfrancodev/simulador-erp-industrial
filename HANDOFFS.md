@@ -4,7 +4,41 @@ This file documents the completion of each task, serving as the source of truth 
 
 ---
 
-## TASK-027 — Auto-conclusão da Production Order no fim da produção (PP → CO)
+## TASK-021.1 — Validação do dashboard em produção + reset de senha (audit_admin)
+
+**Status:** DONE
+
+**Data:** 2026-08-20
+
+**CONTEXTO:**
+- Backend publicado em `https://erp.francorafael.com` (FastAPI atrás do Cloudflare
+  Tunnel → `127.0.0.1:8000`); `/docs` e `/health` respondendo.
+- `GET /dashboard/` sem cookie retorna `401 {"detail":"Invalid authentication credentials"}`
+  por design (`require_dashboard_access`, `app/security/dependencies.py`) — não há
+  redirecionamento para o login; a rota pública é `GET /dashboard/login`.
+
+**VALIDADO (produção, 2026-08-20):**
+- HTTPS funcional no domínio público (`erp.francorafael.com`).
+- Página de login `GET /dashboard/login` servida.
+- Login `POST /dashboard/login` com usuário `audit_admin` → cookie HttpOnly
+  `access_token` → acesso ao dashboard autenticado.
+
+**RESET DE SENHA EXECUTADO (read-only no restante):**
+- Usuário: `audit_admin` (role `admin`, `is_active=true`) — **inalterados**.
+- Apenas `password_hash` atualizado (PBKDF2-HMAC-SHA256, 600k iterações, sal por usuário —
+  mesmo formato de `app/security/passwords.py`).
+- Nova senha forte e aleatória gerada em memória, entregue ao operador uma única vez.
+- Nenhuma migration, nenhuma alteração de `SECRET_KEY`/config, nada gravado em arquivos/logs.
+- Procedimento documentado em `docs/RUNBOOK.md` → "User administration / Reset a user password".
+
+**ARQUIVOS ALTERADOS:**
+- `TASKS.md` (checklist TASK-021), `docs/RUNBOOK.md`, `HANDOFFS.md`
+
+**PRÓXIMA TAREFA:**
+- TASK-021 pendências: `TRUSTED_PROXY_IPS` real, `alembic upgrade head` + smoke test
+  PP-PI → QM → CO contra o PostgreSQL real, detalhamento de backup/restore.
+
+---
 
 **Status:** DONE
 
