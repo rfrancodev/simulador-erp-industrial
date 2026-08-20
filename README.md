@@ -348,7 +348,7 @@ de uma empresa dependem umas das outras:
 | **QM** (Qualidade) | Inspeciona cada lote produzido e decide: aprovado, retrabalho ou sucata | "Este lote está bom para ser entregue?" |
 | **CO** (Custos) | Calcula o custo planejado vs. real de cada ordem e o desvio | "Ganhamos ou perdemos dinheiro?" |
 
-## Por que este projeto se destaca (olhar do recrutador)
+## Por que este projeto se destaca 
 
 Este **não é um CRUD genérico / lista de tarefas**. É um sistema full-stack
 com domínio de negócio rico e problemas reais de engenharia. Destaques que um
