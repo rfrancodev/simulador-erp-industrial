@@ -212,6 +212,66 @@ class TestAnalyticsService:
         assert stats["resources_count"] == 0
         assert stats["recent_orders"] == []
 
+    def test_production_stats_pagination(self, session: Session):
+        start = datetime(2026, 1, 1, 8, 0, tzinfo=UTC)
+        for i in range(5):
+            _create_order(
+                session,
+                f"PO-PG-{i:04d}",
+                start + timedelta(days=i),
+                Decimal("9000"),
+                has_inspection=False,
+            )
+        svc = AnalyticsService(session)
+
+        stats = svc.production_stats(page=1, per_page=2)
+        assert stats["total_orders"] == 5
+        assert stats["total_pages"] == 3
+        assert stats["page"] == 1
+        assert [o["order_number"] for o in stats["recent_orders"]] == [
+            "PO-PG-0004",
+            "PO-PG-0003",
+        ]
+
+        stats2 = svc.production_stats(page=2, per_page=2)
+        assert stats2["page"] == 2
+        assert [o["order_number"] for o in stats2["recent_orders"]] == [
+            "PO-PG-0002",
+            "PO-PG-0001",
+        ]
+
+        stats3 = svc.production_stats(page=99, per_page=2)
+        assert stats3["page"] == 3
+        assert [o["order_number"] for o in stats3["recent_orders"]] == ["PO-PG-0000"]
+
+    def test_production_page_pagination(self, client: TestClient, session: Session):
+        start = datetime(2026, 1, 1, 8, 0, tzinfo=UTC)
+        for i in range(5):
+            _create_order(
+                session,
+                f"PO-PG-{i:04d}",
+                start + timedelta(days=i),
+                Decimal("9000"),
+                has_inspection=False,
+            )
+
+        resp = client.get("/dashboard/production?page=1&per_page=2")
+        assert resp.status_code == 200
+        assert "Page 1 of 3" in resp.text
+        assert "PO-PG-0004" in resp.text
+        assert "Próxima" in resp.text
+
+        resp2 = client.get("/dashboard/production?page=2&per_page=2")
+        assert resp2.status_code == 200
+        assert "Page 2 of 3" in resp2.text
+        assert "PO-PG-0001" in resp2.text
+        assert "Anterior" in resp2.text
+
+        resp3 = client.get("/dashboard/production?page=3&per_page=2")
+        assert resp3.status_code == 200
+        assert "Page 3 of 3" in resp3.text
+        assert "PO-PG-0000" in resp3.text
+
     def test_quality_stats_empty(self, session: Session):
         svc = AnalyticsService(session)
         stats = svc.quality_stats()

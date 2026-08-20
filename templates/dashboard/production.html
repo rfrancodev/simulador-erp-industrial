@@ -45,13 +45,14 @@
     {% if stats.recent_orders %}
     <table>
         <thead>
-            <tr><th>Order</th><th>Status</th><th>Planned (L)</th><th>Actual (L)</th></tr>
+            <tr><th>Order</th><th>Status</th><th>Planned Start</th><th>Planned (L)</th><th>Actual (L)</th></tr>
         </thead>
         <tbody>
         {% for o in stats.recent_orders %}
             <tr>
                 <td>{{ o.order_number }}</td>
                 <td>{{ o.status }}</td>
+                <td>{{ o.planned_start[:10] if o.planned_start else "-" }}</td>
                 <td>{{ "%.0f"|format(o.planned_quantity) }}</td>
                 <td>{{ "%.0f"|format(o.actual_quantity) if o.actual_quantity else "-" }}</td>
             </tr>
@@ -60,6 +61,21 @@
     </table>
     {% else %}
     <div class="empty">No production orders yet.</div>
+    {% endif %}
+    {% if stats.total_pages > 1 %}
+    <div class="pagination">
+        {% if stats.page > 1 %}
+        <a href="/dashboard/production?page={{ stats.page - 1 }}&per_page={{ stats.per_page }}">Anterior</a>
+        {% else %}
+        <span class="disabled">Anterior</span>
+        {% endif %}
+        <span class="page-info">Page {{ stats.page }} of {{ stats.total_pages }} — {{ stats.total_orders }} orders</span>
+        {% if stats.page < stats.total_pages %}
+        <a href="/dashboard/production?page={{ stats.page + 1 }}&per_page={{ stats.per_page }}">Próxima</a>
+        {% else %}
+        <span class="disabled">Próxima</span>
+        {% endif %}
+    </div>
     {% endif %}
 </div>
 {% endblock %}

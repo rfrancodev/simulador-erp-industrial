@@ -2,7 +2,7 @@
 
 import os
 
-from fastapi import APIRouter, Depends, Form, HTTPException, Request, status
+from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request, status
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
@@ -118,7 +118,10 @@ async def dashboard_home(
 
 @router.get("/production", response_class=HTMLResponse)
 async def dashboard_production(
-    request: Request, analytics: AnalyticsService = Depends(_analytics)
+    request: Request,
+    analytics: AnalyticsService = Depends(_analytics),
+    page: int = Query(1, ge=1),
+    per_page: int = Query(10, ge=1, le=50),
 ):
     return templates.TemplateResponse(
         request=request,
@@ -126,7 +129,9 @@ async def dashboard_production(
         context={
             "active_nav": "production",
             "kpis": analytics.executive_kpis(),
-            "stats": analytics.production_stats(),
+            "stats": analytics.production_stats(page=page, per_page=per_page),
+            "page": page,
+            "per_page": per_page,
         },
     )
 

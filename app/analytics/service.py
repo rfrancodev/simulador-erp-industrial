@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from collections import defaultdict
 from decimal import Decimal
 from typing import Optional
@@ -212,16 +213,28 @@ class AnalyticsService:
 
     # ── Module stats ──────────────────────────────────────────────────────
 
-    def production_stats(self) -> dict:
+    def production_stats(self, page: int = 1, per_page: int = 10) -> dict:
+        """Production module stats with server-side pagination.
+
+        Orders are ordered by ``planned_start`` (the production time dimension)
+        so the history can be navigated month by month; ``created_at`` is not
+        used here because it reflects the simulation run time, not production.
+        """
         materials_count = self._session.scalar(select(func.count(Material.id))) or 0
         recipes_count = self._session.scalar(select(func.count(ProductionRecipe.id))) or 0
         resources_count = self._session.scalar(select(func.count(ProductionResource.id))) or 0
 
+        total_orders = self._session.scalar(select(func.count(ProductionOrder.id))) or 0
+        total_pages = max(1, math.ceil(total_orders / per_page))
+        page = min(max(1, page), total_pages)
+        offset = (page - 1) * per_page
+
         recent_orders = list(
             self._session.execute(
                 select(ProductionOrder)
-                .order_by(ProductionOrder.created_at.desc())
-                .limit(10)
+                .order_by(ProductionOrder.planned_start.desc(), ProductionOrder.id.desc())
+                .offset(offset)
+                .limit(per_page)
             ).scalars().all()
         )
 
@@ -241,6 +254,10 @@ class AnalyticsService:
                 }
                 for o in recent_orders
             ],
+            "total_orders": total_orders,
+            "total_pages": total_pages,
+            "page": page,
+            "per_page": per_page,
         }
 
     def quality_stats(self) -> dict:

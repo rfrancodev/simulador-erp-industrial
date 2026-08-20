@@ -5,15 +5,20 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Industrial ERP Simulator — Dashboard</title>
     <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"
-            integrity="sha384-OLBgp1GsljhM2TJ+sbHjaiH9txEUvgdDTAzHv2P24donTt6/529l+9Ua0vFImLlb"
+            integrity="sha384-cCVCZkAjYNxaYKbM8lsArLznDF/SvMFr1jcZrvOpSTCa0W40ZAdLzHCEulnUa5i7"
             crossorigin="anonymous"></script>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f5f7fa; color: #1a1a2e; }
-        .nav { background: #1a1a2e; color: #fff; padding: 0 24px; display: flex; align-items: center; height: 56px; gap: 24px; }
+        .nav { position: relative; display: flex; align-items: center; flex-wrap: wrap; gap: 0 24px; min-height: 56px; padding: 0 24px; background: #1a1a2e; color: #fff; }
         .nav a { color: #a0aec0; text-decoration: none; font-size: 14px; font-weight: 500; }
         .nav a:hover, .nav a.active { color: #fff; }
         .nav .brand { font-size: 16px; font-weight: 700; color: #fff; margin-right: 16px; }
+        .nav-toggle { display: none; }
+        .nav-menu { display: flex; align-items: center; gap: 24px; flex: 1 1 auto; min-width: 0; }
+        .nav-logout { margin: 0; margin-left: auto; }
+        .nav-logout-btn { background: none; border: none; color: #a0aec0; font-size: 14px; font-weight: 500; cursor: pointer; padding: 0; }
+        .nav-logout-btn:hover { color: #fff; }
         .container { max-width: 1280px; margin: 0 auto; padding: 24px; }
         h1 { font-size: 24px; margin-bottom: 24px; color: #2d3748; }
         .kpi-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; margin-bottom: 32px; }
@@ -27,8 +32,9 @@
         .chart-card { background: #fff; border-radius: 8px; padding: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
         .chart-card h2 { font-size: 16px; margin-bottom: 16px; color: #4a5568; }
         .full-width { grid-column: 1 / -1; }
+        .kpi-row > *, .chart-row > *, .order-result.visible > * { min-width: 0; }
         .search-box { display: flex; gap: 8px; margin-bottom: 24px; }
-        .search-box input { flex: 1; padding: 10px 16px; border: 1px solid #e2e8f0; border-radius: 6px; font-size: 14px; }
+        .search-box input { flex: 1; min-width: 0; padding: 10px 16px; border: 1px solid #e2e8f0; border-radius: 6px; font-size: 14px; }
         .search-box button { padding: 10px 24px; background: #3182ce; color: #fff; border: none; border-radius: 6px; font-weight: 600; cursor: pointer; }
         .search-box button:hover { background: #2b6cb0; }
         .order-result { display: none; background: #fff; border-radius: 8px; padding: 24px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
@@ -41,30 +47,89 @@
         .module-card h4 { font-size: 14px; color: #718096; margin-bottom: 8px; }
         .module-card .detail { font-size: 13px; color: #4a5568; line-height: 1.6; }
         .module-card .detail strong { color: #2d3748; }
-        .table-card { background: #fff; border-radius: 8px; padding: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); margin-bottom: 24px; }
+        .table-card { background: #fff; border-radius: 8px; padding: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); margin-bottom: 24px; overflow-x: auto; }
         .table-card h2 { font-size: 16px; margin-bottom: 16px; color: #4a5568; }
         table { width: 100%; border-collapse: collapse; font-size: 13px; }
         table th { text-align: left; padding: 10px 12px; border-bottom: 2px solid #e2e8f0; color: #718096; font-weight: 600; }
         table td { padding: 10px 12px; border-bottom: 1px solid #f0f4f8; color: #4a5568; }
         .empty { color: #a0aec0; font-size: 13px; padding: 20px; text-align: center; }
-        @media (max-width: 768px) { .chart-row { grid-template-columns: 1fr; } .order-result.visible { grid-template-columns: 1fr; } }
+        .pagination { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 12px; padding-top: 16px; }
+        .pagination a { padding: 8px 16px; background: #3182ce; color: #fff; border-radius: 6px; font-size: 13px; font-weight: 600; text-decoration: none; }
+        .pagination a:hover { background: #2b6cb0; }
+        .pagination .disabled { padding: 8px 16px; background: #e2e8f0; color: #a0aec0; border-radius: 6px; font-size: 13px; font-weight: 600; }
+        .pagination .page-info { font-size: 13px; color: #718096; }
+        @media (max-width: 768px) {
+            .nav { gap: 0 16px; }
+            .nav-toggle {
+                display: flex; flex-direction: column; justify-content: center; align-items: center;
+                gap: 5px; margin-left: auto; width: 44px; height: 44px; padding: 0;
+                background: none; border: none; cursor: pointer;
+            }
+            .nav-toggle-bar { display: block; width: 22px; height: 2px; background: #fff; border-radius: 2px; }
+            .nav-menu { display: none; flex: 1 1 100%; flex-direction: column; align-items: stretch; gap: 0; padding-bottom: 8px; }
+            .nav-menu.open { display: flex; }
+            .nav-menu a { display: block; padding: 14px 0; border-bottom: 1px solid rgba(255,255,255,0.06); }
+            .nav-menu a:hover, .nav-menu a.active { color: #fff; }
+            .nav-logout { margin-left: 0; padding: 12px 0 4px; }
+            .chart-row { grid-template-columns: 1fr; }
+            .order-result.visible { grid-template-columns: 1fr; }
+        }
+        @media (max-width: 480px) {
+            .container { padding: 16px; }
+            .search-box { flex-wrap: wrap; }
+            .search-box button { flex: 1 1 100%; }
+        }
     </style>
 </head>
 <body>
     <nav class="nav">
-        <span class="brand">INDUSTRIAL ERP SIMULATOR</span>
-        <a href="/dashboard/" class="{{ 'active' if active_nav == 'home' else '' }}">Dashboard</a>
-        <a href="/dashboard/production" class="{{ 'active' if active_nav == 'production' else '' }}">Production</a>
-        <a href="/dashboard/quality" class="{{ 'active' if active_nav == 'quality' else '' }}">Quality</a>
-        <a href="/dashboard/costing" class="{{ 'active' if active_nav == 'cost' else '' }}">Cost</a>
-        <a href="/dashboard/order-360" class="{{ 'active' if active_nav == 'order360' else '' }}">Order 360°</a>
-        <a href="/docs">API Docs</a>
-        <form method="post" action="/dashboard/logout" style="margin-left: auto; margin: 0;">
-            <button type="submit" style="background: none; border: none; color: #a0aec0; font-size: 14px; font-weight: 500; cursor: pointer;">Sair</button>
-        </form>
+        <span class="brand">ERP</span>
+        <button class="nav-toggle" id="nav-toggle" type="button" aria-label="Abrir menu" aria-expanded="false" aria-controls="nav-menu">
+            <span class="nav-toggle-bar"></span>
+            <span class="nav-toggle-bar"></span>
+            <span class="nav-toggle-bar"></span>
+        </button>
+        <div class="nav-menu" id="nav-menu">
+            <a href="/dashboard/" class="{{ 'active' if active_nav == 'home' else '' }}">Dashboard</a>
+            <a href="/dashboard/production" class="{{ 'active' if active_nav == 'production' else '' }}">Production</a>
+            <a href="/dashboard/quality" class="{{ 'active' if active_nav == 'quality' else '' }}">Quality</a>
+            <a href="/dashboard/costing" class="{{ 'active' if active_nav == 'cost' else '' }}">Cost</a>
+            <a href="/dashboard/order-360" class="{{ 'active' if active_nav == 'order360' else '' }}">Order 360°</a>
+            {% if request.state.user.role == 'admin' %}
+            <a href="/docs">API Docs</a>
+            {% endif %}
+            <form method="post" action="/dashboard/logout" class="nav-logout">
+                <button type="submit" class="nav-logout-btn">Sair</button>
+            </form>
+        </div>
     </nav>
     <div class="container">
         {% block content %}{% endblock %}
     </div>
+    <script>
+        (function () {
+            var toggle = document.getElementById('nav-toggle');
+            var menu = document.getElementById('nav-menu');
+            if (!toggle || !menu) return;
+            function closeMenu() {
+                menu.classList.remove('open');
+                toggle.setAttribute('aria-expanded', 'false');
+            }
+            toggle.addEventListener('click', function (e) {
+                e.stopPropagation();
+                var open = menu.classList.toggle('open');
+                toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+            });
+            menu.querySelectorAll('a, button').forEach(function (el) {
+                el.addEventListener('click', closeMenu);
+            });
+            document.addEventListener('click', function (e) {
+                if (!menu.contains(e.target) && !toggle.contains(e.target)) closeMenu();
+            });
+            document.addEventListener('keydown', function (e) {
+                if (e.key === 'Escape') closeMenu();
+            });
+        })();
+    </script>
 </body>
 </html>
