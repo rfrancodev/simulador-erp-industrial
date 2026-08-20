@@ -6,6 +6,7 @@ from decimal import Decimal
 from typing import Generator
 
 import pytest
+from fastapi import Request
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -44,7 +45,11 @@ def _admin_auth_override(request):
     from app.domain.entities import User
     from app.main import app
     from app.middleware.rate_limit import rate_limiter
-    from app.security.dependencies import get_current_user, require_dashboard_access
+    from app.security.dependencies import (
+        get_current_user,
+        require_admin_access,
+        require_dashboard_access,
+    )
 
     rate_limiter.reset()
 
@@ -53,13 +58,20 @@ def _admin_auth_override(request):
         return
 
     admin = User(id=1, username="test-admin", role=UserRole.ADMIN.value, is_active=True)
+
+    def _admin_override(request: Request):
+        request.state.user = admin
+        return admin
+
     app.dependency_overrides[get_current_user] = lambda: admin
-    app.dependency_overrides[require_dashboard_access] = lambda: admin
+    app.dependency_overrides[require_dashboard_access] = _admin_override
+    app.dependency_overrides[require_admin_access] = _admin_override
     try:
         yield
     finally:
         app.dependency_overrides.pop(get_current_user, None)
         app.dependency_overrides.pop(require_dashboard_access, None)
+        app.dependency_overrides.pop(require_admin_access, None)
 
 
 @pytest.fixture

@@ -1,7 +1,8 @@
 """Industrial ERP Simulator — API endpoints."""
 
 from fastapi import Depends, FastAPI
-from fastapi.responses import JSONResponse
+from fastapi.openapi.docs import get_swagger_ui_html
+from fastapi.responses import HTMLResponse, JSONResponse
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
@@ -26,6 +27,7 @@ from app.core.exceptions import (
 from app.core.logging import setup_logging
 from app.database.connection import session_dependency
 from app.middleware.rate_limit import RateLimitMiddleware
+from app.security.dependencies import require_admin_access
 from app.security.tokens import validate_secret_key
 from app.services.integration import register_integration_handlers
 
@@ -37,6 +39,9 @@ app = FastAPI(
     title="Industrial ERP Simulator",
     description="Integrated PP-PI, QM & CO Process Simulation — inspired by SAP S/4HANA concepts.",
     version="0.1.0",
+    docs_url=None,
+    redoc_url=None,
+    openapi_url=None,
 )
 
 app.add_middleware(RateLimitMiddleware)
@@ -104,3 +109,21 @@ async def health(session: Session = Depends(session_dependency)):
         return {"status": "ok", "database": "connected"}
     except Exception:
         return JSONResponse(status_code=503, content={"status": "error", "database": "unavailable"})
+
+
+# ── API documentation (admin-only) ────────────────────────────────────────
+# FastAPI's default Swagger routes are disabled above; /docs and /openapi.json
+# are re-registered here behind admin authentication so non-admin users cannot
+# reach the API documentation.
+
+@app.get("/docs", response_class=HTMLResponse, include_in_schema=False)
+async def swagger_docs(_admin=Depends(require_admin_access)):
+    return get_swagger_ui_html(
+        openapi_url="/openapi.json",
+        title="Industrial ERP Simulator — API Docs",
+    )
+
+
+@app.get("/openapi.json", include_in_schema=False)
+async def openapi_schema(_admin=Depends(require_admin_access)):
+    return app.openapi()

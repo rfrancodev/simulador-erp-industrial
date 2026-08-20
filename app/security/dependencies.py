@@ -142,4 +142,35 @@ def require_dashboard_access(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Insufficient permissions",
         )
+    request.state.user = user
+    return user
+
+
+def require_admin_access(
+    request: Request,
+    session: Session = Depends(session_dependency),
+) -> User:
+    """Authenticate admin-only resources (e.g. API docs) via cookie or bearer
+    token and require the ``admin`` role.
+
+    Non-admin users receive ``403 Forbidden``; unauthenticated requests receive
+    the standard ``401`` credentials error, mirroring the dashboard behavior.
+    """
+    if request.method not in ("GET", "HEAD", "OPTIONS"):
+        raise HTTPException(
+            status_code=status.HTTP_405_METHOD_NOT_ALLOWED,
+            detail="Method not allowed",
+        )
+
+    token = request.cookies.get("access_token") or _bearer_token(request)
+    if not token:
+        raise _credentials_error()
+
+    user = _user_from_token(token, session)
+    if _resolve_role(user) != UserRole.ADMIN:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Insufficient permissions",
+        )
+    request.state.user = user
     return user
