@@ -3,7 +3,7 @@
 **Integrated PP-PI, QM & CO Process Simulation** — *inspired by SAP S/4HANA concepts.*
 
 > **Disclaimer:** This project is *not* an SAP implementation. It is inspired by
-> SAP concepts (PP-PI, QM, CO) for educational and portfolio purposes. All
+> SAP concepts (PP-PI, QM, CO) for educational and demonstration purposes. All
 > industrial data is **synthetic** — for educational and simulation purposes only.
 
 ---
@@ -21,7 +21,7 @@
 **Integrated PP-PI, QM & CO Process Simulation** — *inspired by SAP S/4HANA concepts.*
 
 > **Disclaimer:** this project is *not* an SAP implementation. It is inspired by
-> SAP concepts (PP-PI, QM, CO) for educational and portfolio purposes. All
+> SAP concepts (PP-PI, QM, CO) for educational and demonstration purposes. All
 > industrial data is **synthetic** — for educational and simulation purposes only.
 
 ---
@@ -43,11 +43,10 @@ areas of a company depend on each other:
 | **QM** (Quality) | Inspects every batch produced and decides: approved, rework or scrap | "Is this batch good enough to ship?" |
 | **CO** (Costing) | Computes planned vs. actual cost of each order and the variance | "Did we make money or lose money?" |
 
-## Why this project stands out 
+## Why this project stands out
 
 This is **not a generic CRUD / to-do list**. It is a domain-rich, full-stack
-system with real engineering problems. Highlights a recruiter (technical or
-not) can recognize:
+system with real engineering problems. Highlights at a glance:
 
 - **Real business domain.** It models rules that actually exist in industry
   (SAP-inspired PP-PI / QM / CO). It shows you don't just "write code" — you
@@ -348,11 +347,11 @@ de uma empresa dependem umas das outras:
 | **QM** (Qualidade) | Inspeciona cada lote produzido e decide: aprovado, retrabalho ou sucata | "Este lote está bom para ser entregue?" |
 | **CO** (Custos) | Calcula o custo planejado vs. real de cada ordem e o desvio | "Ganhamos ou perdemos dinheiro?" |
 
-## Por que este projeto se destaca 
+## Por que este projeto se destaca
 
 Este **não é um CRUD genérico / lista de tarefas**. É um sistema full-stack
-com domínio de negócio rico e problemas reais de engenharia. Destaques que um
-recrutador (técnico ou não) consegue reconhecer:
+com domínio de negócio rico e problemas reais de engenharia. Destaques à
+primeira vista:
 
 - **Domínio de negócio real.** Modela regras que existem de verdade na
   indústria (inspiradas em SAP PP-PI / QM / CO). Mostra que você não apenas
