@@ -43,7 +43,7 @@ areas of a company depend on each other:
 | **QM** (Quality) | Inspects every batch produced and decides: approved, rework or scrap | "Is this batch good enough to ship?" |
 | **CO** (Costing) | Computes planned vs. actual cost of each order and the variance | "Did we make money or lose money?" |
 
-## Why this project stands out (recruiter's perspective)
+## Why this project stands out 
 
 This is **not a generic CRUD / to-do list**. It is a domain-rich, full-stack
 system with real engineering problems. Highlights a recruiter (technical or
