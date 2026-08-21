@@ -969,7 +969,7 @@ dados carregados sob demanda) e adicionar filtros server-side à tabela *Recent 
 
 ### TASK-031 — Melhoria de UI/UX em Production Orders Filters
 
-**Status:** PENDING — aguardando confirmação de execução (sem commit/push/deploy)
+**Status:** DONE
 
 **Objetivo:** Melhorar exclusivamente a interface visual da seção *Production Orders Filters*
 (`templates/dashboard/production.html`), mantendo a lógica/backend dos filtros intacta.
@@ -992,16 +992,18 @@ dados carregados sob demanda) e adicionar filtros server-side à tabela *Recent 
 - `pytest` → **345 passed** (nenhuma regressão)
 - `compileall app/` → OK
 
-**Critérios de aceite (a validar):**
-- [ ] Layout desktop equilibrado (colunas proporcionais, controles alinhados)
-- [ ] Mobile sem scroll horizontal nem campos cortados
-- [ ] Lógica dos filtros inalterada (ordem/status/datas/quantidades/combinação/paginação/anti-vazio)
-- [ ] Identidade visual do ERP preservada
+**Commit/Push:**
+- `3ec2c30` — `ui: improve production filters layout` → `origin/main`.
+
+**Critérios de aceite:**
+- [x] Layout desktop equilibrado (colunas proporcionais, controles alinhados)
+- [x] Mobile sem scroll horizontal nem campos cortados (grid empilha em ≤600px)
+- [x] Lógica dos filtros inalterada (ordem/status/datas/quantidades/combinação/paginação/anti-vazio)
+- [x] Identidade visual do ERP preservada
 
 **Observações:**
 - Validação visual em navegador real não realizada (sem navegador no ambiente); apenas
   validação estrutural de HTML/CSS.
-- Sem commit/push/deploy até confirmação.
 
 ---
 

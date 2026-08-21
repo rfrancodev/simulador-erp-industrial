@@ -6,7 +6,7 @@ This file documents the completion of each task, serving as the source of truth 
 
 ## TASK-031 — Melhoria de UI/UX em Production Orders Filters
 
-**Status:** PENDING — aguardando confirmação de execução (sem commit/push/deploy)
+**Status:** DONE
 
 **Data:** 2026-08-21
 
@@ -44,8 +44,11 @@ This file documents the completion of each task, serving as the source of truth 
 - Validação visual em navegador real **NÃO** realizada (sem navegador no ambiente) —
   validação estrutural de HTML/CSS apenas.
 
-**PRÓXIMA AÇÃO:**
-- Aguardar confirmação para commit/push/deploy.
+**COMMIT/PUSH:**
+- `3ec2c30` — `ui: improve production filters layout` → `origin/main`.
+
+**PRÓXIMA TAREFA:**
+- Validação visual manual em navegador (desktop/tablet/mobile), se disponível.
 
 ---
 
