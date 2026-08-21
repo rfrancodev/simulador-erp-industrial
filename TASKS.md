@@ -951,6 +951,9 @@ dados carregados sob demanda) e adicionar filtros server-side à tabela *Recent 
   Total Orders **124** — conferem com as contagens exibidas pelos KPIs.
 - Nenhuma migration/Docker/Cloudflare/auth alterados.
 
+**Commit/Push:**
+- `8126926` — `feat: add dashboard KPI modals and production filters` → `origin/main`.
+
 **Documentos atualizados:**
 - `TASKS.md` (esta task), `HANDOFFS.md`
 
@@ -960,7 +963,7 @@ dados carregados sob demanda) e adicionar filtros server-side à tabela *Recent 
 - [x] Endpoints respeitam a autenticação existente
 - [x] Production com filtros server-side por Order/Status/Planned Start/Planned (L)/Actual (L)
 - [x] Paginação funciona junto com filtros; limpar filtros restaura comportamento original
-- [x] Sem scroll horizontal involuntário; suíte completa passa; sem commit/push/deploy
+- [x] Sem scroll horizontal involuntário; suíte completa passa
 
 ---
 

@@ -53,6 +53,9 @@ This file documents the completion of each task, serving as the source of truth 
 334 passed (era 319; +15)
 ```
 
+**COMMIT/PUSH:**
+- `8126926` — `feat: add dashboard KPI modals and production filters` → `origin/main`.
+
 **VALIDAÇÃO (PostgreSQL real):**
 - Contagens conferem com o banco: Materials **11**, Recipes **3**, Resources **20**,
   Non-Conformities **11**, Pending Inspections **3**, Total Orders **124**.
