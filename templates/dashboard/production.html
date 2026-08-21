@@ -45,7 +45,7 @@
 
 <div class="filters">
     <h2>Production Orders Filters</h2>
-    <form method="get" action="/dashboard/production">
+    <form id="production-filters" method="get" action="/dashboard/production">
         <div class="filters-grid">
             <div class="filters-field">
                 <label for="filter-order">Order</label>
@@ -84,7 +84,7 @@
         </div>
         <div class="filters-actions">
             <button type="submit" class="filters-apply">Apply Filters</button>
-            <a href="/dashboard/production?per_page={{ per_page }}" class="filters-clear">Clear</a>
+            <a href="/dashboard/production?page=1&per_page={{ per_page }}" class="filters-clear">Clear</a>
         </div>
         <input type="hidden" name="per_page" value="{{ per_page }}">
         <input type="hidden" name="page" value="1">
@@ -156,5 +156,17 @@
             { key: 'available', label: 'Available' }
         ]);
     }
+
+    (function () {
+        var form = document.getElementById('production-filters');
+        if (!form) return;
+        form.addEventListener('submit', function () {
+            form.querySelectorAll('input, select').forEach(function (el) {
+                if (el.type !== 'hidden' && el.value.trim() === '') {
+                    el.disabled = true;
+                }
+            });
+        });
+    })();
 </script>
 {% endblock %}

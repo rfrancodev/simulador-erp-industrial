@@ -758,6 +758,47 @@ class TestDashboardAPI:
         assert "order=SIM-ORD" in resp.text
         assert "SIM-ORD-0002" in resp.text
 
+    def test_production_page_no_filters(self, client: TestClient):
+        assert client.get("/dashboard/production").status_code == 200
+        assert client.get("/dashboard/production?page=1").status_code == 200
+
+    @pytest.mark.parametrize(
+        "query",
+        [
+            "order=SIM-ORD",
+            "status=COMPLETED",
+            "planned_start_from=2026-01-01",
+            "planned_start_to=2026-12-31",
+            "planned_min=5000",
+            "planned_max=15000",
+            "actual_min=4000",
+            "actual_max=15000",
+        ],
+    )
+    def test_production_page_single_filter_returns_200(self, client: TestClient, query):
+        assert client.get(f"/dashboard/production?{query}").status_code == 200
+
+    def test_production_page_combined_filters_returns_200(self, client: TestClient, session: Session):
+        start = datetime(2026, 1, 10, 8, 0, tzinfo=UTC)
+        _create_order(session, "SIM-ORD-0003", start, Decimal("9000"), False)
+        _create_order(session, "OTHER-0001", start, Decimal("9000"), False)
+
+        resp = client.get(
+            "/dashboard/production?page=1&order=SIM-ORD-0003"
+            "&planned_start_from=2026-01-01&planned_max=15000"
+        )
+        assert resp.status_code == 200
+        assert "SIM-ORD-0003" in resp.text
+        assert "OTHER-0001" not in resp.text
+
+    def test_production_page_form_strips_empty_filters(self, client: TestClient):
+        resp = client.get("/dashboard/production")
+        assert resp.status_code == 200
+        html = resp.text
+        assert 'id="production-filters"' in html
+        assert "el.disabled = true" in html
+        assert 'href="/dashboard/production?page=1&per_page=10"' in html
+
     def test_production_page_has_clickable_kpi_cards(self, client: TestClient):
         resp = client.get("/dashboard/production")
         assert resp.status_code == 200
