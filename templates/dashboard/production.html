@@ -47,11 +47,11 @@
     <h2>Production Orders Filters</h2>
     <form id="production-filters" method="get" action="/dashboard/production">
         <div class="filters-grid">
-            <div class="filters-field">
+            <div class="filters-field filters-field--order">
                 <label for="filter-order">Order</label>
                 <input type="text" id="filter-order" name="order" value="{{ filters.order }}" placeholder="SIM-ORD">
             </div>
-            <div class="filters-field">
+            <div class="filters-field filters-field--status">
                 <label for="filter-status">Status</label>
                 <select id="filter-status" name="status">
                     <option value="">All</option>
@@ -60,24 +60,27 @@
                     {% endfor %}
                 </select>
             </div>
-            <div class="filters-field">
+            <div class="filters-field filters-field--dates">
                 <label>Planned Start</label>
                 <div class="filters-range">
                     <input type="date" name="planned_start_from" value="{{ filters.planned_start_from }}" aria-label="Planned Start From">
+                    <span class="filters-range-sep" aria-hidden="true">&ndash;</span>
                     <input type="date" name="planned_start_to" value="{{ filters.planned_start_to }}" aria-label="Planned Start To">
                 </div>
             </div>
-            <div class="filters-field">
+            <div class="filters-field filters-field--planned">
                 <label>Planned (L)</label>
                 <div class="filters-range">
                     <input type="number" name="planned_min" value="{{ filters.planned_min }}" placeholder="Min" aria-label="Planned Min">
+                    <span class="filters-range-sep" aria-hidden="true">&ndash;</span>
                     <input type="number" name="planned_max" value="{{ filters.planned_max }}" placeholder="Max" aria-label="Planned Max">
                 </div>
             </div>
-            <div class="filters-field">
+            <div class="filters-field filters-field--actual">
                 <label>Actual (L)</label>
                 <div class="filters-range">
                     <input type="number" name="actual_min" value="{{ filters.actual_min }}" placeholder="Min" aria-label="Actual Min">
+                    <span class="filters-range-sep" aria-hidden="true">&ndash;</span>
                     <input type="number" name="actual_max" value="{{ filters.actual_max }}" placeholder="Max" aria-label="Actual Max">
                 </div>
             </div>
