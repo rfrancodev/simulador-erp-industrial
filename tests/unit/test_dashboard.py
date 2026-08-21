@@ -62,8 +62,15 @@ def client(session: Session):
     app.dependency_overrides.clear()
 
 
-def _create_order(session, order_number, planned_start, actual_quantity, has_inspection):
-    """Create a full order (material/recipe/resource/order/batch + optional inspection + cost)."""
+def _create_order(
+    session, order_number, planned_start, actual_quantity, has_inspection,
+    actual_total_cost=Decimal("210"),
+):
+    """Create a full order (material/recipe/resource/order/batch + optional inspection + cost).
+
+    ``actual_total_cost=None`` produces a ``CostRecord`` whose actual cost fields
+    are NULL (matching SIM-ORD-0003 / SIM-ORD-0004).
+    """
     material = Material(
         material_code=f"M-{order_number}",
         material_name="Test",
@@ -109,6 +116,17 @@ def _create_order(session, order_number, planned_start, actual_quantity, has_ins
                 batch_id=batch.id, inspection_lot=f"QI-{order_number}", inspection_status="PASSED"
             )
         )
+    if actual_total_cost is not None:
+        actual_material_cost = Decimal("110")
+        actual_labor_cost = Decimal("50")
+        actual_machine_cost = Decimal("30")
+        actual_energy_cost = Decimal("20")
+    else:
+        actual_material_cost = None
+        actual_labor_cost = None
+        actual_machine_cost = None
+        actual_energy_cost = None
+
     session.add(
         CostRecord(
             production_order_id=order.id,
@@ -117,11 +135,11 @@ def _create_order(session, order_number, planned_start, actual_quantity, has_ins
             planned_machine_cost=Decimal("30"),
             planned_energy_cost=Decimal("20"),
             planned_total_cost=Decimal("200"),
-            actual_material_cost=Decimal("110"),
-            actual_labor_cost=Decimal("50"),
-            actual_machine_cost=Decimal("30"),
-            actual_energy_cost=Decimal("20"),
-            actual_total_cost=Decimal("210"),
+            actual_material_cost=actual_material_cost,
+            actual_labor_cost=actual_labor_cost,
+            actual_machine_cost=actual_machine_cost,
+            actual_energy_cost=actual_energy_cost,
+            actual_total_cost=actual_total_cost,
         )
     )
     session.commit()
@@ -203,6 +221,24 @@ class TestAnalyticsService:
     def test_order_360_not_found(self, session: Session):
         svc = AnalyticsService(session)
         assert svc.order_360("NONEXISTENT") is None
+
+    def test_order_360_with_actual_cost(self, session: Session):
+        start = datetime(2026, 1, 10, 8, 0, tzinfo=UTC)
+        _create_order(session, "SIM-ORD-0001", start, Decimal("9000"), True)
+        data = AnalyticsService(session).order_360("SIM-ORD-0001")
+        assert data["cost"]["actual_total"] == 210.0
+        assert data["cost"]["planned_total"] == 200.0
+        assert data["cost"]["variance"] == 10.0
+
+    def test_order_360_without_actual_cost(self, session: Session):
+        start = datetime(2026, 1, 10, 8, 0, tzinfo=UTC)
+        _create_order(
+            session, "SIM-ORD-0003", start, Decimal("9000"), True, actual_total_cost=None
+        )
+        data = AnalyticsService(session).order_360("SIM-ORD-0003")
+        assert data["cost"]["actual_total"] is None
+        assert data["cost"]["variance"] is None
+        assert data["cost"]["variance_percent"] is None
 
     def test_production_stats_empty(self, session: Session):
         svc = AnalyticsService(session)
@@ -466,6 +502,26 @@ class TestDashboardAPI:
     def test_api_order_360_not_found(self, client: TestClient):
         resp = client.get("/api/dashboard/order-360/NONEXISTENT")
         assert resp.status_code == 404
+
+    def test_api_order_360_handles_null_actual_total(self, client: TestClient, session: Session):
+        start = datetime(2026, 1, 10, 8, 0, tzinfo=UTC)
+        _create_order(session, "SIM-ORD-0001", start, Decimal("9000"), True, Decimal("210"))
+        _create_order(session, "SIM-ORD-0002", start, Decimal("9000"), True, Decimal("210"))
+        _create_order(session, "SIM-ORD-0003", start, Decimal("9000"), True, None)
+        _create_order(session, "SIM-ORD-0004", start, Decimal("9000"), True, None)
+
+        responses = {
+            number: client.get(f"/api/dashboard/order-360/{number}")
+            for number in ("SIM-ORD-0001", "SIM-ORD-0002", "SIM-ORD-0003", "SIM-ORD-0004")
+        }
+
+        for number, resp in responses.items():
+            assert resp.status_code == 200, f"{number} returned {resp.status_code}"
+
+        assert responses["SIM-ORD-0001"].json()["cost"]["actual_total"] == 210.0
+        assert responses["SIM-ORD-0002"].json()["cost"]["actual_total"] == 210.0
+        assert responses["SIM-ORD-0003"].json()["cost"]["actual_total"] is None
+        assert responses["SIM-ORD-0004"].json()["cost"]["actual_total"] is None
 
     def test_api_production_stats(self, client: TestClient):
         resp = client.get("/api/dashboard/production-stats")

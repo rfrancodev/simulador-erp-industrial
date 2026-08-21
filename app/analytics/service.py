@@ -393,7 +393,11 @@ class AnalyticsService:
             ],
             "cost": {
                 "planned_total": float(cost.planned_total_cost) if cost else None,
-                "actual_total": float(cost.actual_total_cost) if cost else None,
+                "actual_total": (
+                    float(cost.actual_total_cost)
+                    if cost and cost.actual_total_cost is not None
+                    else None
+                ),
                 "variance": float(cost.variance) if cost and cost.variance else None,
                 "variance_percent": float(cost.variance_percent) if cost and cost.variance_percent else None,
             }
