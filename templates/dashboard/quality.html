@@ -13,15 +13,15 @@
         <div class="value {{ 'negative' if kpis.quality.scrap_rate > 5 else '' }}">{{ kpis.quality.scrap_rate }}%</div>
         <div class="sub">{{ kpis.quality.failed }} failed</div>
     </div>
-    <div class="kpi-card">
+    <div class="kpi-card clickable" onclick="openNonConformities()">
         <div class="label">Non-Conformities</div>
         <div class="value">{{ kpis.quality.non_conformities }}</div>
-        <div class="sub">recorded defects</div>
+        <div class="sub">recorded defects · click to view</div>
     </div>
-    <div class="kpi-card">
+    <div class="kpi-card clickable" onclick="openPendingInspections()">
         <div class="label">Pending Inspections</div>
         <div class="value">{{ stats.pending_inspections }}</div>
-        <div class="sub">awaiting result</div>
+        <div class="sub">awaiting result · click to view</div>
     </div>
 </div>
 
@@ -47,4 +47,28 @@
     <div class="empty">No inspections yet.</div>
     {% endif %}
 </div>
+
+<script>
+    function openNonConformities() {
+        openKpiModal('Non-Conformities', '/api/dashboard/non-conformities', [
+            { key: 'order_number', label: 'Order' },
+            { key: 'inspection_lot', label: 'Inspection' },
+            { key: 'defect_code', label: 'Defect Code' },
+            { key: 'defect_type', label: 'Defect Type' },
+            { key: 'description', label: 'Description' },
+            { key: 'severity', label: 'Severity' },
+            { key: 'disposition', label: 'Disposition' },
+            { key: 'date', label: 'Date' }
+        ]);
+    }
+    function openPendingInspections() {
+        openKpiModal('Pending Inspections', '/api/dashboard/pending-inspections', [
+            { key: 'order_number', label: 'Order' },
+            { key: 'batch_number', label: 'Batch' },
+            { key: 'inspection_lot', label: 'Lot' },
+            { key: 'date', label: 'Date' },
+            { key: 'status', label: 'Status' }
+        ]);
+    }
+</script>
 {% endblock %}

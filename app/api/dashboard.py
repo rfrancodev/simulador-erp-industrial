@@ -1,6 +1,10 @@
 """Dashboard router — serves HTML pages and analytics API endpoints."""
 
 import os
+from datetime import date
+from decimal import Decimal
+from typing import Optional
+from urllib.parse import urlencode
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request, status
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -9,6 +13,7 @@ from sqlalchemy.orm import Session
 
 from app.analytics.service import AnalyticsService
 from app.database.connection import session_dependency
+from app.domain.production.recipe import ProductionOrderStatus
 from app.security.dependencies import require_dashboard_access
 from app.security.tokens import create_access_token, token_expiry_minutes
 from app.services.auth_service import AuthService
@@ -122,16 +127,69 @@ async def dashboard_production(
     analytics: AnalyticsService = Depends(_analytics),
     page: int = Query(1, ge=1),
     per_page: int = Query(10, ge=1, le=50),
+    order: Optional[str] = Query(None),
+    status: Optional[str] = Query(None),
+    planned_start_from: Optional[date] = Query(None),
+    planned_start_to: Optional[date] = Query(None),
+    planned_min: Optional[Decimal] = Query(None),
+    planned_max: Optional[Decimal] = Query(None),
+    actual_min: Optional[Decimal] = Query(None),
+    actual_max: Optional[Decimal] = Query(None),
 ):
+    stats = analytics.production_stats(
+        page=page,
+        per_page=per_page,
+        order=order,
+        status=status,
+        planned_start_from=planned_start_from,
+        planned_start_to=planned_start_to,
+        planned_min=planned_min,
+        planned_max=planned_max,
+        actual_min=actual_min,
+        actual_max=actual_max,
+    )
+
+    query_params = [("per_page", str(per_page))]
+    for key, value in (
+        ("order", order),
+        ("status", status),
+        ("planned_start_from", planned_start_from),
+        ("planned_start_to", planned_start_to),
+        ("planned_min", planned_min),
+        ("planned_max", planned_max),
+        ("actual_min", actual_min),
+        ("actual_max", actual_max),
+    ):
+        if value is not None and value != "":
+            query_params.append((key, str(value)))
+
     return templates.TemplateResponse(
         request=request,
         name="dashboard/production.html",
         context={
             "active_nav": "production",
             "kpis": analytics.executive_kpis(),
-            "stats": analytics.production_stats(page=page, per_page=per_page),
+            "stats": stats,
             "page": page,
             "per_page": per_page,
+            "filters": {
+                "order": order or "",
+                "status": status or "",
+                "planned_start_from": planned_start_from.isoformat() if planned_start_from else "",
+                "planned_start_to": planned_start_to.isoformat() if planned_start_to else "",
+                "planned_min": planned_min if planned_min is not None else "",
+                "planned_max": planned_max if planned_max is not None else "",
+                "actual_min": actual_min if actual_min is not None else "",
+                "actual_max": actual_max if actual_max is not None else "",
+            },
+            "statuses": [s.value for s in ProductionOrderStatus],
+            "filter_query": urlencode(query_params),
+            "has_filters": any(
+                v is not None and v != "" for v in (
+                    order, status, planned_start_from, planned_start_to,
+                    planned_min, planned_max, actual_min, actual_max,
+                )
+            ),
         },
     )
 
@@ -210,3 +268,28 @@ def get_cost_stats(analytics: AnalyticsService = Depends(_analytics)):
 @api_router.get("/monthly-trend")
 def get_monthly_trend(analytics: AnalyticsService = Depends(_analytics)):
     return analytics.monthly_trend()
+
+
+@api_router.get("/materials")
+def get_materials(analytics: AnalyticsService = Depends(_analytics)):
+    return analytics.materials()
+
+
+@api_router.get("/recipes")
+def get_recipes(analytics: AnalyticsService = Depends(_analytics)):
+    return analytics.recipes()
+
+
+@api_router.get("/resources")
+def get_resources(analytics: AnalyticsService = Depends(_analytics)):
+    return analytics.resources()
+
+
+@api_router.get("/non-conformities")
+def get_non_conformities(analytics: AnalyticsService = Depends(_analytics)):
+    return analytics.non_conformities()
+
+
+@api_router.get("/pending-inspections")
+def get_pending_inspections(analytics: AnalyticsService = Depends(_analytics)):
+    return analytics.pending_inspections()

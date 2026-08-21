@@ -1,6 +1,6 @@
 """Unit tests for AnalyticsService and Dashboard API endpoints."""
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 
 import pytest
@@ -65,6 +65,8 @@ def client(session: Session):
 def _create_order(
     session, order_number, planned_start, actual_quantity, has_inspection,
     actual_total_cost=Decimal("210"),
+    planned_quantity=Decimal("10000"),
+    status="COMPLETED",
 ):
     """Create a full order (material/recipe/resource/order/batch + optional inspection + cost).
 
@@ -92,10 +94,10 @@ def _create_order(
         order_number=order_number,
         material_id=material.id,
         recipe_id=recipe.id,
-        planned_quantity=Decimal("10000"),
+        planned_quantity=planned_quantity,
         planned_start=planned_start,
         planned_end=planned_start + timedelta(hours=8),
-        status="COMPLETED",
+        status=status,
         actual_quantity=actual_quantity,
     )
     session.add(order)
@@ -279,6 +281,175 @@ class TestAnalyticsService:
         stats3 = svc.production_stats(page=99, per_page=2)
         assert stats3["page"] == 3
         assert [o["order_number"] for o in stats3["recent_orders"]] == ["PO-PG-0000"]
+
+    def test_production_stats_filter_by_order_partial(self, session: Session):
+        start = datetime(2026, 1, 10, 8, 0, tzinfo=UTC)
+        _create_order(session, "SIM-ORD-0001", start, Decimal("9000"), False)
+        _create_order(session, "SIM-ORD-0002", start, Decimal("9000"), False)
+        _create_order(session, "OTHER-0001", start, Decimal("9000"), False)
+        stats = AnalyticsService(session).production_stats(order="SIM-ORD")
+        assert stats["total_orders"] == 2
+        assert {o["order_number"] for o in stats["recent_orders"]} == {
+            "SIM-ORD-0001",
+            "SIM-ORD-0002",
+        }
+
+    def test_production_stats_filter_by_status(self, session: Session):
+        start = datetime(2026, 1, 10, 8, 0, tzinfo=UTC)
+        _create_order(session, "PO-A", start, Decimal("9000"), False, status="COMPLETED")
+        _create_order(session, "PO-B", start, Decimal("9000"), False, status="COMPLETED")
+        _create_order(session, "PO-C", start, Decimal("9000"), False, status="IN_PROCESS")
+        stats = AnalyticsService(session).production_stats(status="IN_PROCESS")
+        assert stats["total_orders"] == 1
+        assert [o["order_number"] for o in stats["recent_orders"]] == ["PO-C"]
+
+    def test_production_stats_filter_by_planned_start(self, session: Session):
+        _create_order(session, "PO-JAN", datetime(2026, 1, 10, 8, 0, tzinfo=UTC), Decimal("9000"), False)
+        _create_order(session, "PO-MAR", datetime(2026, 3, 10, 8, 0, tzinfo=UTC), Decimal("9000"), False)
+        _create_order(session, "PO-MAY", datetime(2026, 5, 10, 8, 0, tzinfo=UTC), Decimal("9000"), False)
+        svc = AnalyticsService(session)
+        stats = svc.production_stats(
+            planned_start_from=date(2026, 3, 1), planned_start_to=date(2026, 3, 31)
+        )
+        assert stats["total_orders"] == 1
+        assert [o["order_number"] for o in stats["recent_orders"]] == ["PO-MAR"]
+
+    def test_production_stats_filter_by_planned_quantity(self, session: Session):
+        start = datetime(2026, 1, 10, 8, 0, tzinfo=UTC)
+        _create_order(session, "PO-1", start, Decimal("9000"), False, planned_quantity=Decimal("5000"))
+        _create_order(session, "PO-2", start, Decimal("9000"), False, planned_quantity=Decimal("10000"))
+        _create_order(session, "PO-3", start, Decimal("9000"), False, planned_quantity=Decimal("15000"))
+        stats = AnalyticsService(session).production_stats(
+            planned_min=Decimal("8000"), planned_max=Decimal("12000")
+        )
+        assert stats["total_orders"] == 1
+        assert [o["order_number"] for o in stats["recent_orders"]] == ["PO-2"]
+
+    def test_production_stats_filter_by_actual_quantity(self, session: Session):
+        start = datetime(2026, 1, 10, 8, 0, tzinfo=UTC)
+        _create_order(session, "PO-1", start, Decimal("4000"), False)
+        _create_order(session, "PO-2", start, Decimal("9000"), False)
+        _create_order(session, "PO-3", start, Decimal("15000"), False)
+        stats = AnalyticsService(session).production_stats(
+            actual_min=Decimal("8000"), actual_max=Decimal("12000")
+        )
+        assert stats["total_orders"] == 1
+        assert [o["order_number"] for o in stats["recent_orders"]] == ["PO-2"]
+
+    def test_production_stats_combined_filters(self, session: Session):
+        start = datetime(2026, 1, 10, 8, 0, tzinfo=UTC)
+        _create_order(session, "SIM-ORD-0001", start, Decimal("9000"), False, status="COMPLETED")
+        _create_order(session, "SIM-ORD-0002", start, Decimal("9000"), False, status="IN_PROCESS")
+        _create_order(session, "OTHER-0001", start, Decimal("9000"), False, status="COMPLETED")
+        stats = AnalyticsService(session).production_stats(order="SIM-ORD", status="COMPLETED")
+        assert stats["total_orders"] == 1
+        assert [o["order_number"] for o in stats["recent_orders"]] == ["SIM-ORD-0001"]
+
+    def test_production_stats_pagination_preserves_filters(self, session: Session):
+        start = datetime(2026, 1, 1, 8, 0, tzinfo=UTC)
+        for i in range(5):
+            _create_order(session, f"SIM-ORD-{i:04d}", start + timedelta(days=i), Decimal("9000"), False)
+        svc = AnalyticsService(session)
+        stats = svc.production_stats(page=2, per_page=2, order="SIM-ORD")
+        assert stats["total_orders"] == 5
+        assert stats["total_pages"] == 3
+        assert stats["page"] == 2
+        assert [o["order_number"] for o in stats["recent_orders"]] == [
+            "SIM-ORD-0002",
+            "SIM-ORD-0001",
+        ]
+
+    def test_materials_recipes_resources_datasets(self, session: Session):
+        start = datetime(2026, 1, 10, 8, 0, tzinfo=UTC)
+        _create_order(session, "PO-1", start, Decimal("9000"), True)
+        svc = AnalyticsService(session)
+
+        materials = svc.materials()
+        assert len(materials) == 1
+        assert materials[0]["code"] == "M-PO-1"
+        assert materials[0]["unit"] == "L"
+
+        recipes = svc.recipes()
+        assert len(recipes) == 1
+        assert recipes[0]["code"] == "R-PO-1"
+        assert recipes[0]["product"] == "Test"
+
+        resources = svc.resources()
+        assert len(resources) == 1
+        assert resources[0]["code"] == "RES-PO-1"
+
+    def test_non_conformities_and_pending_inspections_datasets(self, session: Session):
+        from app.domain.entities import NonConformity
+
+        start = datetime(2026, 1, 10, 8, 0, tzinfo=UTC)
+        _create_order(session, "PO-1", start, Decimal("9000"), True)
+
+        # Attach a pending inspection to a second order (the helper only creates
+        # a PASSED inspection when requested).
+        material = Material(
+            material_code="M-PO-2", material_name="Test2", material_type="RAW_MATERIAL",
+            base_unit="L", plant="P001",
+        )
+        session.add(material)
+        session.flush()
+        recipe = ProductionRecipe(recipe_code="R-PO-2", material_id=material.id, version="1.0")
+        session.add(recipe)
+        session.flush()
+        resource = ProductionResource(
+            resource_code="RES-PO-2", resource_name="R2", work_center="WC", resource_type="F"
+        )
+        session.add(resource)
+        session.flush()
+        order = ProductionOrder(
+            order_number="PO-2", material_id=material.id, recipe_id=recipe.id,
+            planned_quantity=Decimal("10000"), planned_start=start,
+            planned_end=start + timedelta(hours=8), status="COMPLETED",
+        )
+        session.add(order)
+        session.flush()
+        batch = Batch(
+            batch_number="B-PO-2", production_order_id=order.id, resource_id=resource.id,
+            planned_quantity=Decimal("10000"), status="COMPLETED",
+        )
+        session.add(batch)
+        session.flush()
+        session.add(
+            QualityInspection(
+                batch_id=batch.id, inspection_lot="QI-PO-2", inspection_status="PENDING"
+            )
+        )
+        session.commit()
+
+        svc = AnalyticsService(session)
+        pending = svc.pending_inspections()
+        assert len(pending) == 1
+        assert pending[0]["order_number"] == "PO-2"
+        assert pending[0]["batch_number"] == "B-PO-2"
+        assert pending[0]["inspection_lot"] == "QI-PO-2"
+
+        # There is a PASSED inspection on PO-1, so no pending record.
+        assert all(p["inspection_lot"] != "QI-PO-1" for p in pending)
+
+        # Add a non-conformity against the pending inspection.
+        inspection = session.query(QualityInspection).filter_by(inspection_lot="QI-PO-2").one()
+        session.add(
+            NonConformity(
+                inspection_id=inspection.id,
+                defect_type="Crack",
+                defect_code="D-01",
+                description="Cracked bottle",
+                severity="MAJOR",
+                disposition="REWORK",
+            )
+        )
+        session.commit()
+
+        ncs = svc.non_conformities()
+        assert len(ncs) == 1
+        assert ncs[0]["order_number"] == "PO-2"
+        assert ncs[0]["inspection_lot"] == "QI-PO-2"
+        assert ncs[0]["defect_code"] == "D-01"
+        assert ncs[0]["disposition"] == "REWORK"
 
     def test_production_page_pagination(self, client: TestClient, session: Session):
         start = datetime(2026, 1, 1, 8, 0, tzinfo=UTC)
@@ -545,3 +716,60 @@ class TestDashboardAPI:
         resp = client.get("/api/dashboard/monthly-trend")
         assert resp.status_code == 200
         assert isinstance(resp.json(), list)
+
+    def test_api_modal_datasets(self, client: TestClient, session: Session):
+        start = datetime(2026, 1, 10, 8, 0, tzinfo=UTC)
+        _create_order(session, "PO-1", start, Decimal("9000"), True)
+
+        for path in ("materials", "recipes", "resources", "non-conformities", "pending-inspections"):
+            resp = client.get(f"/api/dashboard/{path}")
+            assert resp.status_code == 200, path
+            assert isinstance(resp.json(), list), path
+
+        materials = client.get("/api/dashboard/materials").json()
+        assert len(materials) == 1
+        assert materials[0]["code"] == "M-PO-1"
+
+    @pytest.mark.no_auth
+    def test_api_modal_dataset_requires_authentication(self, client: TestClient):
+        assert client.get("/api/dashboard/materials").status_code == 401
+
+    def test_production_page_filters(self, client: TestClient, session: Session):
+        start = datetime(2026, 1, 10, 8, 0, tzinfo=UTC)
+        _create_order(session, "SIM-ORD-0001", start, Decimal("9000"), False)
+        _create_order(session, "SIM-ORD-0002", start, Decimal("9000"), False)
+        _create_order(session, "OTHER-0001", start, Decimal("9000"), False)
+
+        resp = client.get("/dashboard/production?order=SIM-ORD&per_page=10")
+        assert resp.status_code == 200
+        assert "SIM-ORD-0001" in resp.text
+        assert "SIM-ORD-0002" in resp.text
+        assert "OTHER-0001" not in resp.text
+        assert "2 matching orders" in resp.text
+
+    def test_production_page_pagination_preserves_filters(self, client: TestClient, session: Session):
+        start = datetime(2026, 1, 1, 8, 0, tzinfo=UTC)
+        for i in range(5):
+            _create_order(session, f"SIM-ORD-{i:04d}", start + timedelta(days=i), Decimal("9000"), False)
+
+        resp = client.get("/dashboard/production?order=SIM-ORD&per_page=2&page=2")
+        assert resp.status_code == 200
+        assert "Page 2 of 3" in resp.text
+        assert "order=SIM-ORD" in resp.text
+        assert "SIM-ORD-0002" in resp.text
+
+    def test_production_page_has_clickable_kpi_cards(self, client: TestClient):
+        resp = client.get("/dashboard/production")
+        assert resp.status_code == 200
+        assert 'class="kpi-card clickable"' in resp.text
+        assert 'onclick="openMaterials()"' in resp.text
+        assert 'onclick="openRecipes()"' in resp.text
+        assert 'onclick="openResources()"' in resp.text
+        assert 'id="kpi-modal"' in resp.text
+        assert "openKpiModal" in resp.text
+
+    def test_quality_page_has_clickable_kpi_cards(self, client: TestClient):
+        resp = client.get("/dashboard/quality")
+        assert resp.status_code == 200
+        assert 'onclick="openNonConformities()"' in resp.text
+        assert 'onclick="openPendingInspections()"' in resp.text

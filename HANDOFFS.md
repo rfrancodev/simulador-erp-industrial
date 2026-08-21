@@ -4,6 +4,68 @@ This file documents the completion of each task, serving as the source of truth 
 
 ---
 
+## TASK-029 — Melhoria de Interatividade e Filtros no Dashboard
+
+**Status:** DONE
+
+**Data:** 2026-08-21
+
+**IMPLEMENTADO:**
+- **KPIs clicáveis com modal** (carregamento sob demanda, sem dados no HTML inicial):
+  - `templates/dashboard/production.html` — cards *Materials*, *Recipes* e *Resources*
+    ganharam `cursor: pointer` + hover (elevação/sombra/borda/transition) e abrem modal.
+  - `templates/dashboard/quality.html` — cards *Non-Conformities* e *Pending Inspections* clicáveis.
+  - `templates/dashboard/base.html` — modal genérico (`#kpi-modal`) com título, botão fechar,
+    fechamento por clique fora, `Esc` e rolagem interna; estados *loading*, *empty* e *error*;
+    JS vanilla (`openKpiModal`/`closeKpiModal`) com escape de HTML.
+- **Endpoints de dados das modais** (protegidos por `require_dashboard_access`, mesmo padrão das
+  demais APIs do dashboard):
+  - `GET /api/dashboard/materials`
+  - `GET /api/dashboard/recipes`
+  - `GET /api/dashboard/resources`
+  - `GET /api/dashboard/non-conformities`
+  - `GET /api/dashboard/pending-inspections`
+  - Métodos correspondentes em `app/analytics/service.py` (`materials`, `recipes`, `resources`,
+    `non_conformities`, `pending_inspections`) com joins para expor order/inspection/batch.
+- **Filtros server-side em Recent Production Orders** (`/dashboard/production`):
+  - `AnalyticsService.production_stats()` ganhou filtros por `order` (ILIKE parcial), `status`,
+    `planned_start_from`/`planned_start_to` (dimensão `planned_start`, não `created_at`),
+    `planned_min`/`planned_max` e `actual_min`/`actual_max`; a paginação passa a contar o
+    resultado **filtrado**.
+  - `app/api/dashboard.py` — `dashboard_production` aceita os query params (`date`/`Decimal`
+    via FastAPI), repassa ao service e preserva os filtros nos links de paginação
+    (`filter_query` via `urlencode`); select de status derivado de `ProductionOrderStatus`.
+  - `templates/dashboard/production.html` — formulário de filtros (Order/Status/Planned Start/
+    Planned (L)/Actual (L)) com *Apply Filters* (volta a `page=1`) e *Clear*; paginação
+    preserva filtros ativos.
+
+**ARQUIVOS ALTERADOS:**
+- `app/analytics/service.py`
+- `app/api/dashboard.py`
+- `templates/dashboard/base.html`
+- `templates/dashboard/production.html`
+- `templates/dashboard/quality.html`
+- `tests/unit/test_dashboard.py`
+- `TASKS.md`, `HANDOFFS.md`
+
+**TESTES:**
+```
+334 passed (era 319; +15)
+```
+
+**VALIDAÇÃO (PostgreSQL real):**
+- Contagens conferem com o banco: Materials **11**, Recipes **3**, Resources **20**,
+  Non-Conformities **11**, Pending Inspections **3**, Total Orders **124**.
+- Filtros validados no banco real: `order=SIM-ORD-0003` → 1; `status=COMPLETED` → 121;
+  `planned_start 2026-07-01..2026-08-20` → 28; `planned 5000..15000` → 124.
+- `compileall app/` OK. Nenhuma migration/Docker/Cloudflare/auth alterados.
+
+**PRÓXIMA TAREFA:**
+- Validação visual no navegador (hover/responsividade do modal e dos filtros no mobile),
+  coberta por testes estáticos de HTML mas sem testes de navegador automatizados.
+
+---
+
 ## TASK-021.1 — Validação do dashboard em produção + reset de senha (audit_admin)
 
 **Status:** DONE

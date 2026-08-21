@@ -26,18 +26,69 @@
 </div>
 
 <div class="kpi-row">
-    <div class="kpi-card">
+    <div class="kpi-card clickable" onclick="openMaterials()">
         <div class="label">Materials</div>
         <div class="value">{{ stats.materials_count }}</div>
+        <div class="sub">click to view</div>
     </div>
-    <div class="kpi-card">
+    <div class="kpi-card clickable" onclick="openRecipes()">
         <div class="label">Recipes</div>
         <div class="value">{{ stats.recipes_count }}</div>
+        <div class="sub">click to view</div>
     </div>
-    <div class="kpi-card">
+    <div class="kpi-card clickable" onclick="openResources()">
         <div class="label">Resources</div>
         <div class="value">{{ stats.resources_count }}</div>
+        <div class="sub">click to view</div>
     </div>
+</div>
+
+<div class="filters">
+    <h2>Production Orders Filters</h2>
+    <form method="get" action="/dashboard/production">
+        <div class="filters-grid">
+            <div class="filters-field">
+                <label for="filter-order">Order</label>
+                <input type="text" id="filter-order" name="order" value="{{ filters.order }}" placeholder="SIM-ORD">
+            </div>
+            <div class="filters-field">
+                <label for="filter-status">Status</label>
+                <select id="filter-status" name="status">
+                    <option value="">All</option>
+                    {% for s in statuses %}
+                    <option value="{{ s }}" {{ 'selected' if filters.status == s else '' }}>{{ s }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="filters-field">
+                <label>Planned Start</label>
+                <div class="filters-range">
+                    <input type="date" name="planned_start_from" value="{{ filters.planned_start_from }}" aria-label="Planned Start From">
+                    <input type="date" name="planned_start_to" value="{{ filters.planned_start_to }}" aria-label="Planned Start To">
+                </div>
+            </div>
+            <div class="filters-field">
+                <label>Planned (L)</label>
+                <div class="filters-range">
+                    <input type="number" name="planned_min" value="{{ filters.planned_min }}" placeholder="Min" aria-label="Planned Min">
+                    <input type="number" name="planned_max" value="{{ filters.planned_max }}" placeholder="Max" aria-label="Planned Max">
+                </div>
+            </div>
+            <div class="filters-field">
+                <label>Actual (L)</label>
+                <div class="filters-range">
+                    <input type="number" name="actual_min" value="{{ filters.actual_min }}" placeholder="Min" aria-label="Actual Min">
+                    <input type="number" name="actual_max" value="{{ filters.actual_max }}" placeholder="Max" aria-label="Actual Max">
+                </div>
+            </div>
+        </div>
+        <div class="filters-actions">
+            <button type="submit" class="filters-apply">Apply Filters</button>
+            <a href="/dashboard/production?per_page={{ per_page }}" class="filters-clear">Clear</a>
+        </div>
+        <input type="hidden" name="per_page" value="{{ per_page }}">
+        <input type="hidden" name="page" value="1">
+    </form>
 </div>
 
 <div class="table-card">
@@ -60,22 +111,50 @@
         </tbody>
     </table>
     {% else %}
-    <div class="empty">No production orders yet.</div>
+    <div class="empty">No production orders match the current filters.</div>
     {% endif %}
-    {% if stats.total_pages > 1 %}
     <div class="pagination">
         {% if stats.page > 1 %}
-        <a href="/dashboard/production?page={{ stats.page - 1 }}&per_page={{ stats.per_page }}">Anterior</a>
+        <a href="/dashboard/production?{{ filter_query }}&page={{ stats.page - 1 }}">Anterior</a>
         {% else %}
         <span class="disabled">Anterior</span>
         {% endif %}
-        <span class="page-info">Page {{ stats.page }} of {{ stats.total_pages }} — {{ stats.total_orders }} orders</span>
+        <span class="page-info">Page {{ stats.page }} of {{ stats.total_pages }} — {{ stats.total_orders }} {{ 'matching ' if has_filters else '' }}orders</span>
         {% if stats.page < stats.total_pages %}
-        <a href="/dashboard/production?page={{ stats.page + 1 }}&per_page={{ stats.per_page }}">Próxima</a>
+        <a href="/dashboard/production?{{ filter_query }}&page={{ stats.page + 1 }}">Próxima</a>
         {% else %}
         <span class="disabled">Próxima</span>
         {% endif %}
     </div>
-    {% endif %}
 </div>
+
+<script>
+    function openMaterials() {
+        openKpiModal('Materials', '/api/dashboard/materials', [
+            { key: 'code', label: 'Code' },
+            { key: 'name', label: 'Material' },
+            { key: 'unit', label: 'Unit' },
+            { key: 'type', label: 'Type' },
+            { key: 'plant', label: 'Plant' },
+            { key: 'active', label: 'Active' }
+        ]);
+    }
+    function openRecipes() {
+        openKpiModal('Recipes', '/api/dashboard/recipes', [
+            { key: 'code', label: 'Code' },
+            { key: 'product', label: 'Product' },
+            { key: 'version', label: 'Version' },
+            { key: 'active', label: 'Active' }
+        ]);
+    }
+    function openResources() {
+        openKpiModal('Resources', '/api/dashboard/resources', [
+            { key: 'code', label: 'Code' },
+            { key: 'name', label: 'Name' },
+            { key: 'type', label: 'Type' },
+            { key: 'work_center', label: 'Work Center' },
+            { key: 'available', label: 'Available' }
+        ]);
+    }
+</script>
 {% endblock %}

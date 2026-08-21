@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import math
 from collections import defaultdict
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from typing import Optional
 
@@ -213,8 +214,20 @@ class AnalyticsService:
 
     # ── Module stats ──────────────────────────────────────────────────────
 
-    def production_stats(self, page: int = 1, per_page: int = 10) -> dict:
-        """Production module stats with server-side pagination.
+    def production_stats(
+        self,
+        page: int = 1,
+        per_page: int = 10,
+        order: Optional[str] = None,
+        status: Optional[str] = None,
+        planned_start_from: Optional[date] = None,
+        planned_start_to: Optional[date] = None,
+        planned_min: Optional[Decimal] = None,
+        planned_max: Optional[Decimal] = None,
+        actual_min: Optional[Decimal] = None,
+        actual_max: Optional[Decimal] = None,
+    ) -> dict:
+        """Production module stats with server-side pagination and filters.
 
         Orders are ordered by ``planned_start`` (the production time dimension)
         so the history can be navigated month by month; ``created_at`` is not
@@ -224,7 +237,32 @@ class AnalyticsService:
         recipes_count = self._session.scalar(select(func.count(ProductionRecipe.id))) or 0
         resources_count = self._session.scalar(select(func.count(ProductionResource.id))) or 0
 
-        total_orders = self._session.scalar(select(func.count(ProductionOrder.id))) or 0
+        conditions: list = []
+        if order:
+            conditions.append(ProductionOrder.order_number.ilike(f"%{order}%"))
+        if status:
+            conditions.append(ProductionOrder.status == status)
+        if planned_start_from is not None:
+            start_dt = datetime.combine(planned_start_from, datetime.min.time()).replace(tzinfo=UTC)
+            conditions.append(ProductionOrder.planned_start >= start_dt)
+        if planned_start_to is not None:
+            end_dt = (
+                datetime.combine(planned_start_to, datetime.min.time()).replace(tzinfo=UTC)
+                + timedelta(days=1)
+            )
+            conditions.append(ProductionOrder.planned_start < end_dt)
+        if planned_min is not None:
+            conditions.append(ProductionOrder.planned_quantity >= planned_min)
+        if planned_max is not None:
+            conditions.append(ProductionOrder.planned_quantity <= planned_max)
+        if actual_min is not None:
+            conditions.append(ProductionOrder.actual_quantity >= actual_min)
+        if actual_max is not None:
+            conditions.append(ProductionOrder.actual_quantity <= actual_max)
+
+        total_orders = self._session.scalar(
+            select(func.count(ProductionOrder.id)).where(*conditions)
+        ) or 0
         total_pages = max(1, math.ceil(total_orders / per_page))
         page = min(max(1, page), total_pages)
         offset = (page - 1) * per_page
@@ -232,6 +270,7 @@ class AnalyticsService:
         recent_orders = list(
             self._session.execute(
                 select(ProductionOrder)
+                .where(*conditions)
                 .order_by(ProductionOrder.planned_start.desc(), ProductionOrder.id.desc())
                 .offset(offset)
                 .limit(per_page)
@@ -311,6 +350,119 @@ class AnalyticsService:
                 for name, p, a in cost_by_material
             ],
         }
+
+    # ── Modal datasets (loaded on demand) ─────────────────────────────────
+
+    def materials(self) -> list[dict]:
+        """List materials for the clickable KPI modal."""
+        rows = list(
+            self._session.execute(
+                select(Material).order_by(Material.material_code)
+            ).scalars().all()
+        )
+        return [
+            {
+                "code": m.material_code,
+                "name": m.material_name,
+                "unit": m.base_unit,
+                "type": m.material_type,
+                "plant": m.plant,
+                "active": m.is_active,
+            }
+            for m in rows
+        ]
+
+    def recipes(self) -> list[dict]:
+        """List recipes (with product name) for the clickable KPI modal."""
+        rows = list(
+            self._session.execute(
+                select(ProductionRecipe, Material.material_name)
+                .join(Material, ProductionRecipe.material_id == Material.id)
+                .order_by(ProductionRecipe.recipe_code)
+            ).all()
+        )
+        return [
+            {
+                "code": r.recipe_code,
+                "product": name,
+                "version": r.version,
+                "active": r.is_active,
+            }
+            for r, name in rows
+        ]
+
+    def resources(self) -> list[dict]:
+        """List production resources for the clickable KPI modal."""
+        rows = list(
+            self._session.execute(
+                select(ProductionResource).order_by(ProductionResource.resource_code)
+            ).scalars().all()
+        )
+        return [
+            {
+                "code": r.resource_code,
+                "name": r.resource_name,
+                "type": r.resource_type,
+                "work_center": r.work_center,
+                "available": r.is_available,
+            }
+            for r in rows
+        ]
+
+    def non_conformities(self) -> list[dict]:
+        """List non-conformities linked to their order/inspection for the modal."""
+        rows = list(
+            self._session.execute(
+                select(
+                    NonConformity,
+                    ProductionOrder.order_number,
+                    QualityInspection.inspection_lot,
+                )
+                .join(QualityInspection, NonConformity.inspection_id == QualityInspection.id)
+                .join(Batch, QualityInspection.batch_id == Batch.id)
+                .join(ProductionOrder, Batch.production_order_id == ProductionOrder.id)
+                .order_by(NonConformity.created_at.desc(), NonConformity.id.desc())
+            ).all()
+        )
+        return [
+            {
+                "order_number": order_number,
+                "inspection_lot": inspection_lot,
+                "defect_code": nc.defect_code,
+                "defect_type": nc.defect_type,
+                "description": nc.description,
+                "severity": nc.severity,
+                "disposition": nc.disposition,
+                "date": nc.created_at.strftime("%Y-%m-%d") if nc.created_at else None,
+            }
+            for nc, order_number, inspection_lot in rows
+        ]
+
+    def pending_inspections(self) -> list[dict]:
+        """List pending inspections linked to their order/batch for the modal."""
+        rows = list(
+            self._session.execute(
+                select(
+                    QualityInspection,
+                    ProductionOrder.order_number,
+                    Batch.batch_number,
+                )
+                .join(Batch, QualityInspection.batch_id == Batch.id)
+                .join(ProductionOrder, Batch.production_order_id == ProductionOrder.id)
+                .where(QualityInspection.inspection_status == "PENDING")
+                .order_by(QualityInspection.inspection_date.desc(), QualityInspection.id.desc())
+            ).all()
+        )
+        return [
+            {
+                "order_number": order_number,
+                "batch_number": batch_number,
+                "inspection_lot": i.inspection_lot,
+                "date": i.inspection_date.strftime("%Y-%m-%d") if i.inspection_date else None,
+                "status": i.inspection_status,
+            }
+            for i, order_number, batch_number in rows
+        ]
 
     # ── Order 360° ────────────────────────────────────────────────────────
 

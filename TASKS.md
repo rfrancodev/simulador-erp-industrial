@@ -917,6 +917,53 @@ máquina de estados e o `CostRecord` é criado via evento — sem ação manual 
 
 ---
 
+### TASK-029 — Melhoria de Interatividade e Filtros no Dashboard
+
+**Status:** DONE
+
+**Objetivo:** Tornar os KPIs do dashboard interativos (cards clicáveis que abrem modal com
+dados carregados sob demanda) e adicionar filtros server-side à tabela *Recent Production Orders*.
+
+**Implementação:**
+- [x] `app/analytics/service.py` — novos métodos `materials()`, `recipes()`, `resources()`,
+  `non_conformities()`, `pending_inspections()` (joins para order/inspection/batch).
+- [x] `app/analytics/service.py` — `production_stats()` com filtros `order` (ILIKE parcial),
+  `status`, `planned_start_from/to`, `planned_min/max`, `actual_min/max`; paginação conta o
+  resultado filtrado e mantém `planned_start DESC`.
+- [x] `app/api/dashboard.py` — endpoints `GET /api/dashboard/{materials,recipes,resources,
+  non-conformities,pending-inspections}` (protegidos por `require_dashboard_access`).
+- [x] `app/api/dashboard.py` — `dashboard_production` aceita query params de filtro
+  (`date`/`Decimal` via FastAPI) e preserva filtros nos links de paginação.
+- [x] `templates/dashboard/base.html` — modal genérico (loading/empty/error, fechar por
+  clique fora/Esc/botão, rolagem interna, JS vanilla com escape de HTML) + CSS de hover/filtros.
+- [x] `templates/dashboard/production.html` — cards Materials/Recipes/Resources clicáveis +
+  formulário de filtros + paginação preservando filtros.
+- [x] `templates/dashboard/quality.html` — cards Non-Conformities/Pending Inspections clicáveis.
+
+**Testes:**
+- `pytest` → **334 passed** (era 319; +15: filtros por order/status/planned start/quantities/
+  combinação/paginação preservando filtros; datasets das modais; 5 endpoints 200 + 401 sem auth;
+  markers HTML de cards clicáveis/modal).
+- `compileall app/` → OK
+
+**Validação (PostgreSQL real):**
+- Materials **11**, Recipes **3**, Resources **20**, Non-Conformities **11**, Pending Inspections **3**,
+  Total Orders **124** — conferem com as contagens exibidas pelos KPIs.
+- Nenhuma migration/Docker/Cloudflare/auth alterados.
+
+**Documentos atualizados:**
+- `TASKS.md` (esta task), `HANDOFFS.md`
+
+**Critérios de aceite:**
+- [x] Materials/Recipes/Resources/Non-Conformities/Pending Inspections clicáveis com modal
+- [x] Cards com efeito hover; modais desktop/mobile com loading/empty/error
+- [x] Endpoints respeitam a autenticação existente
+- [x] Production com filtros server-side por Order/Status/Planned Start/Planned (L)/Actual (L)
+- [x] Paginação funciona junto com filtros; limpar filtros restaura comportamento original
+- [x] Sem scroll horizontal involuntário; suíte completa passa; sem commit/push/deploy
+
+---
+
 ### Guia de Deploy — Oracle + Cloudflare + PostgreSQL
 
 #### Passo 1 — PostgreSQL na VPS

@@ -58,6 +58,33 @@
         .pagination a:hover { background: #2b6cb0; }
         .pagination .disabled { padding: 8px 16px; background: #e2e8f0; color: #a0aec0; border-radius: 6px; font-size: 13px; font-weight: 600; }
         .pagination .page-info { font-size: 13px; color: #718096; }
+        .kpi-card.clickable { cursor: pointer; border: 1px solid transparent; transition: box-shadow 0.2s ease, transform 0.2s ease, border-color 0.2s ease, background-color 0.2s ease; }
+        .kpi-card.clickable:hover { box-shadow: 0 6px 16px rgba(0,0,0,0.12); transform: translateY(-2px); border-color: #3182ce; background-color: #f7fafc; }
+        .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; padding: 24px; z-index: 1000; }
+        .modal-overlay[hidden] { display: none; }
+        .modal { background: #fff; border-radius: 8px; width: 100%; max-width: 760px; max-height: 82vh; display: flex; flex-direction: column; box-shadow: 0 20px 60px rgba(0,0,0,0.3); }
+        .modal-header { display: flex; align-items: center; justify-content: space-between; padding: 16px 20px; border-bottom: 1px solid #e2e8f0; }
+        .modal-title { font-size: 18px; color: #2d3748; margin: 0; }
+        .modal-close { background: none; border: none; font-size: 26px; line-height: 1; color: #718096; cursor: pointer; padding: 0 4px; }
+        .modal-close:hover { color: #2d3748; }
+        .modal-body { padding: 16px 20px; overflow: auto; }
+        .modal-state { color: #718096; font-size: 14px; text-align: center; padding: 24px; }
+        .modal-table { overflow-x: auto; }
+        .filters { background: #fff; border-radius: 8px; padding: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); margin-bottom: 24px; }
+        .filters h2 { font-size: 16px; margin-bottom: 16px; color: #4a5568; }
+        .filters-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin-bottom: 16px; }
+        .filters-field { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+        .filters-field label { font-size: 12px; color: #718096; text-transform: uppercase; letter-spacing: 0.4px; }
+        .filters-field input, .filters-field select { padding: 8px 10px; border: 1px solid #e2e8f0; border-radius: 6px; font-size: 14px; color: #2d3748; background: #fff; }
+        .filters-field input:focus, .filters-field select:focus { outline: none; border-color: #3182ce; }
+        .filters-range { display: flex; gap: 8px; align-items: center; }
+        .filters-range input { flex: 1; min-width: 0; }
+        .filters-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+        .filters-actions button, .filters-actions a { padding: 8px 20px; border-radius: 6px; font-size: 13px; font-weight: 600; cursor: pointer; text-decoration: none; }
+        .filters-apply { background: #3182ce; color: #fff; border: none; }
+        .filters-apply:hover { background: #2b6cb0; }
+        .filters-clear { background: #edf2f7; color: #4a5568; border: 1px solid #e2e8f0; }
+        .filters-clear:hover { background: #e2e8f0; }
         @media (max-width: 768px) {
             .nav { gap: 0 16px; }
             .nav-toggle {
@@ -73,6 +100,8 @@
             .nav-logout { margin-left: 0; padding: 12px 0 4px; }
             .chart-row { grid-template-columns: 1fr; }
             .order-result.visible { grid-template-columns: 1fr; }
+            .modal-overlay { padding: 12px; }
+            .modal { max-height: 88vh; }
         }
         @media (max-width: 480px) {
             .container { padding: 16px; }
@@ -106,6 +135,90 @@
     <div class="container">
         {% block content %}{% endblock %}
     </div>
+    <div class="modal-overlay" id="kpi-modal" hidden>
+        <div class="modal" role="dialog" aria-modal="true" aria-labelledby="kpi-modal-title">
+            <div class="modal-header">
+                <h2 class="modal-title" id="kpi-modal-title"></h2>
+                <button class="modal-close" id="kpi-modal-close" type="button" aria-label="Fechar">&times;</button>
+            </div>
+            <div class="modal-body" id="kpi-modal-body"></div>
+        </div>
+    </div>
+    <script>
+        (function () {
+            var overlay = document.getElementById('kpi-modal');
+            if (!overlay) return;
+
+            window.closeKpiModal = function () {
+                overlay.hidden = true;
+            };
+
+            function escapeHtml(value) {
+                return String(value).replace(/[&<>"']/g, function (ch) {
+                    return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch];
+                });
+            }
+
+            function formatCell(value) {
+                if (value === null || value === undefined || value === '') return '-';
+                if (typeof value === 'boolean') return value ? 'Yes' : 'No';
+                return escapeHtml(value);
+            }
+
+            function renderTable(columns, rows) {
+                var html = '<div class="modal-table"><table><thead><tr>';
+                columns.forEach(function (col) {
+                    html += '<th>' + escapeHtml(col.label) + '</th>';
+                });
+                html += '</tr></thead><tbody>';
+                rows.forEach(function (row) {
+                    html += '<tr>';
+                    columns.forEach(function (col) {
+                        html += '<td>' + formatCell(row[col.key]) + '</td>';
+                    });
+                    html += '</tr>';
+                });
+                html += '</tbody></table></div>';
+                return html;
+            }
+
+            window.openKpiModal = function (title, endpoint, columns) {
+                var titleEl = document.getElementById('kpi-modal-title');
+                var body = document.getElementById('kpi-modal-body');
+                titleEl.textContent = title;
+                body.innerHTML = '<div class="modal-state">Loading...</div>';
+                overlay.hidden = false;
+
+                fetch(endpoint)
+                    .then(function (resp) {
+                        if (!resp.ok) throw new Error('HTTP ' + resp.status);
+                        return resp.json();
+                    })
+                    .then(function (rows) {
+                        if (!Array.isArray(rows) || rows.length === 0) {
+                            body.innerHTML = '<div class="modal-state">No records found.</div>';
+                            return;
+                        }
+                        body.innerHTML = renderTable(columns, rows);
+                    })
+                    .catch(function () {
+                        body.innerHTML = '<div class="modal-state">Unable to load data. Please try again.</div>';
+                    });
+            };
+
+            document.getElementById('kpi-modal-close').addEventListener('click', function () {
+                overlay.hidden = true;
+            });
+
+            overlay.addEventListener('click', function (e) {
+                if (e.target === overlay) overlay.hidden = true;
+            });
+
+            document.addEventListener('keydown', function (e) {
+                if (e.key === 'Escape' && !overlay.hidden) overlay.hidden = true;
+            });
+        })();
+    </script>
     <script>
         (function () {
             var toggle = document.getElementById('nav-toggle');
