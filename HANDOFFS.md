@@ -4,6 +4,51 @@ This file documents the completion of each task, serving as the source of truth 
 
 ---
 
+## TASK-031 — Melhoria de UI/UX em Production Orders Filters
+
+**Status:** PENDING — aguardando confirmação de execução (sem commit/push/deploy)
+
+**Data:** 2026-08-21
+
+**OBJETIVO:**
+- Melhorar exclusivamente a interface visual da seção *Production Orders Filters*
+  (`templates/dashboard/production.html`), sem alterar a lógica/backend dos filtros.
+
+**CAUSA VISUAL IDENTIFICADA:**
+- Inputs e selects sem altura fixa uniforme — a altura nativa do `<select>` difere do `<input>`.
+- Grid `auto-fit minmax(200px, 1fr)` fazia campos simples (Order/Status) ocuparem a célula
+  inteira, enquanto campos de intervalo (datas/min-max) ficavam com dois inputs estreitos.
+- Botões Apply/Clear alinhados à esquerda e visualmente soltos do bloco de campos.
+- Campos de intervalo sem separador visual (From/To e Min/Max pareciam desconectados).
+
+**IMPLEMENTADO (prioritariamente CSS em `base.html` + estrutura mínima em `production.html`):**
+- Altura única de **40px** para inputs/selects/botões (`box-sizing: border-box` já é global).
+- Grid de **12 colunas** com spans balanceados: Order=3, Status=2, Planned Start=3,
+  Planned(L)=2, Actual(L)=2.
+- Separador "–" (`filters-range-sep`) entre From/To e Min/Max.
+- Botões Apply/Clear alinhados à direita, com mesma altura.
+- Estados `:focus` (borda + box-shadow) e transição discreta.
+- Responsivo: ≤992px → 6 colunas; ≤600px → coluna única empilhada com botões esticados.
+
+**ARQUIVOS ALTERADOS:**
+- `templates/dashboard/base.html` (CSS da seção `.filters`)
+- `templates/dashboard/production.html` (classes modificadoras + separadores de range)
+
+**TESTES:**
+```
+345 passed (nenhuma regressão)
+```
+
+**OBSERVAÇÕES:**
+- Lógica dos filtros **inalterada** (parâmetros, GET, paginação, anti-vazio, Apply/Clear).
+- Validação visual em navegador real **NÃO** realizada (sem navegador no ambiente) —
+  validação estrutural de HTML/CSS apenas.
+
+**PRÓXIMA AÇÃO:**
+- Aguardar confirmação para commit/push/deploy.
+
+---
+
 ## TASK-029 — Melhoria de Interatividade e Filtros no Dashboard
 
 **Status:** DONE

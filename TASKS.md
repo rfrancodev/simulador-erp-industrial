@@ -967,6 +967,44 @@ dados carregados sob demanda) e adicionar filtros server-side à tabela *Recent 
 
 ---
 
+### TASK-031 — Melhoria de UI/UX em Production Orders Filters
+
+**Status:** PENDING — aguardando confirmação de execução (sem commit/push/deploy)
+
+**Objetivo:** Melhorar exclusivamente a interface visual da seção *Production Orders Filters*
+(`templates/dashboard/production.html`), mantendo a lógica/backend dos filtros intacta.
+
+**Causa visual identificada:**
+- Inputs/selects sem altura uniforme (altura nativa do `<select>` ≠ `<input>`).
+- Grid `auto-fit minmax(200px,1fr)` desequilibrava campos simples vs. campos de intervalo.
+- Botões Apply/Clear à esquerda e soltos do bloco.
+- Intervalos (From/To, Min/Max) sem separador visual.
+
+**Implementação:**
+- [x] Altura única de 40px para inputs/selects/botões (`box-sizing: border-box` já global).
+- [x] Grid 12 colunas com spans: Order=3, Status=2, Planned Start=3, Planned(L)=2, Actual(L)=2.
+- [x] Separador "–" entre From/To e Min/Max.
+- [x] Botões Apply/Clear alinhados à direita, mesma altura.
+- [x] `:focus` com borda + box-shadow e transição discreta.
+- [x] Responsivo: ≤992px → 6 colunas; ≤600px → coluna única, botões esticados.
+
+**Testes:**
+- `pytest` → **345 passed** (nenhuma regressão)
+- `compileall app/` → OK
+
+**Critérios de aceite (a validar):**
+- [ ] Layout desktop equilibrado (colunas proporcionais, controles alinhados)
+- [ ] Mobile sem scroll horizontal nem campos cortados
+- [ ] Lógica dos filtros inalterada (ordem/status/datas/quantidades/combinação/paginação/anti-vazio)
+- [ ] Identidade visual do ERP preservada
+
+**Observações:**
+- Validação visual em navegador real não realizada (sem navegador no ambiente); apenas
+  validação estrutural de HTML/CSS.
+- Sem commit/push/deploy até confirmação.
+
+---
+
 ### Guia de Deploy — Oracle + Cloudflare + PostgreSQL
 
 #### Passo 1 — PostgreSQL na VPS
